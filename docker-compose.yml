@@ -1,0 +1,42 @@
+services:
+  redis:
+    build:
+      context: ./redis
+      dockerfile: Dockerfile
+    volumes:
+      - redis-data:/data
+      - ${SRC_VOLUME}:/app/bob
+    restart: unless-stopped
+    networks:
+      - bob-network
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/redis_password.txt && redis-cli -a $(cat /data/redis_password.txt) ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  strapi:
+    build:
+      context: ./strapi
+      dockerfile: Dockerfile
+    ports:
+      - "${STRAPI_HOST}:${STRAPI_PORT}:${STRAPI_PORT}"
+    volumes:
+      - ${SRC_VOLUME}:/app/bob
+    environment:
+      - NODE_ENV=${NODE_ENV}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - bob-network
+
+networks:
+  bob-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
