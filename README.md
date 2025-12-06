@@ -1,11 +1,42 @@
 # Docker Configuration for BOB - Strapi + Redis
 
+## Dépendances
+
+### Strapi Container
+
+| Dépendance | Version | Description |
+|------------|---------|-------------|
+| **Node.js** | 20 LTS | Runtime JavaScript (image Alpine pour réduire la taille) |
+| **Yarn** | Pré-installé | Gestionnaire de packages (inclus dans node:20-alpine) |
+| **msmtp** | Latest | Client SMTP léger pour Alpine Linux, remplace sendmail |
+| **BusyBox sh** | Alpine | Shell par défaut (pas bash) |
+
+**Note importante sur msmtp** : Alpine Linux n'inclut pas le package `sendmail` traditionnel. Nous utilisons `msmtp` comme alternative légère avec un lien symbolique `/usr/sbin/sendmail` → `/usr/bin/msmtp` pour la compatibilité avec Strapi.
+
+### Redis Container
+
+| Dépendance | Version | Description |
+|------------|---------|-------------|
+| **Redis Server** | 7 (Alpine) | Base de données en mémoire avec persistance AOF |
+| **OpenSSL** | Latest | Génération sécurisée de mot de passe (`openssl rand -base64 32`) |
+| **sed** | BusyBox | Édition automatique du fichier `.env` de Strapi |
+
+### Configuration Redis
+
+- **Persistance** : AOF (Append Only File) avec `appendfsync everysec`
+- **Mémoire** : Limite de 256MB avec politique `allkeys-lru`
+- **Sécurité** :
+  - Authentification par mot de passe (`requirepass`)
+  - Commandes désactivées : `FLUSHDB`, `FLUSHALL`, `CONFIG`
+  - Protected mode désactivé (réseau Docker interne uniquement)
+- **Databases** : 16 databases par défaut (DB 0-15), utilise DB 0 par défaut
+
 ## Architecture
 
 ### Strapi
 - **Image de base**: Node 20 LTS (Alpine)
 - **Gestionnaire de packages**: Yarn (pré-installé)
-- **Dépendances**: Sendmail (pour l'envoi d'emails)
+- **Dépendances**: msmtp (alternative légère à sendmail pour Alpine, avec symlink `/usr/sbin/sendmail`)
 - **Port**: 1337 (accessible uniquement sur 127.0.0.1)
 - **Volume source**: `${SRC_VOLUME}` → `/app/bob`
 - **Runtime**: `yarn install` → `yarn build` → `yarn start`
@@ -21,15 +52,15 @@
 
 ```
 docker/
-├── .env                       # Configuration: SRC_VOLUME
+├── .env                       # Configuration centralisée (volumes, ports, environnement)
+├── .env.example               # Exemple de configuration
 ├── docker-compose.yml         # Orchestration des services
 ├── README.md                  # Cette documentation
-├── strapi.env.example         # Variables d'environnement pour Strapi
 ├── strapi/
-│   ├── Dockerfile            # Node 20 + Yarn + Sendmail
+│   ├── Dockerfile            # Node 20 Alpine + Yarn + msmtp
 │   └── runtime.sh            # yarn install → yarn build → yarn start
 └── redis/
-    ├── Dockerfile            # Redis 7 + OpenSSL
+    ├── Dockerfile            # Redis 7 Alpine + OpenSSL
     ├── redis.conf            # Configuration Redis sécurisée
     └── entrypoint.sh         # Génération mot de passe + MAJ .env Strapi
 ```
