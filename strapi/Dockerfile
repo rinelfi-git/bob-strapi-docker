@@ -1,10 +1,22 @@
-# Utiliser Node 20 LTS comme image de base
-FROM node:20-alpine
+# Utiliser Node 20 LTS sur Debian Bookworm Slim (meilleure compatibilité réseau)
+FROM node:20-bookworm-slim
 
-# Installer msmtp (alternative légère à sendmail pour Alpine)
-# et créer un lien symbolique pour la compatibilité avec Strapi
-RUN apk add --no-cache msmtp && \
-    ln -sf /usr/bin/msmtp /usr/sbin/sendmail
+# Installer msmtp (alternative légère à sendmail)
+# ca-certificates pour les connexions TLS (APNs, etc.)
+# build-essential et python3 pour compiler better-sqlite3 et autres modules natifs
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        msmtp \
+        ca-certificates \
+        curl \
+        iputils-ping \
+        build-essential \
+        python3 \
+        && \
+    update-ca-certificates && \
+    ln -sf /usr/bin/msmtp /usr/sbin/sendmail && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Définir le répertoire de travail
 WORKDIR /app/bob
