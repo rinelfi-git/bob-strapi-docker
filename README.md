@@ -6,12 +6,14 @@
 
 | Dépendance | Version | Description |
 |------------|---------|-------------|
-| **Node.js** | 20 LTS | Runtime JavaScript (image Alpine pour réduire la taille) |
-| **Yarn** | Pré-installé | Gestionnaire de packages (inclus dans node:20-alpine) |
-| **msmtp** | Latest | Client SMTP léger pour Alpine Linux, remplace sendmail |
-| **BusyBox sh** | Alpine | Shell par défaut (pas bash) |
+| **Node.js** | 20 LTS | Runtime JavaScript (image Debian Bookworm Slim) |
+| **Yarn** | Pré-installé | Gestionnaire de packages (inclus dans node:20-bookworm-slim) |
+| **msmtp** | Latest | Client SMTP léger, remplace sendmail |
+| **build-essential** | Latest | Outils de compilation (gcc, g++, make) pour modules natifs |
+| **python3** | Latest | Requis pour compiler certains modules Node.js (better-sqlite3, etc.) |
+| **ca-certificates** | Latest | Certificats TLS pour connexions sécurisées (APNs, etc.) |
 
-**Note importante sur msmtp** : Alpine Linux n'inclut pas le package `sendmail` traditionnel. Nous utilisons `msmtp` comme alternative légère avec un lien symbolique `/usr/sbin/sendmail` → `/usr/bin/msmtp` pour la compatibilité avec Strapi.
+**Note sur l'image de base** : Nous utilisons `node:20-bookworm-slim` (Debian) au lieu d'Alpine pour une meilleure compatibilité avec les modules natifs et le réseau. Le symlink `/usr/sbin/sendmail` → `/usr/bin/msmtp` assure la compatibilité avec Strapi.
 
 ### Redis Container
 
@@ -34,14 +36,18 @@
 ## Architecture
 
 ### Strapi
-- **Image de base**: Node 20 LTS (Alpine)
+
+- **Image de base**: Node 20 LTS (Debian Bookworm Slim)
 - **Gestionnaire de packages**: Yarn (pré-installé)
-- **Dépendances**: msmtp (alternative légère à sendmail pour Alpine, avec symlink `/usr/sbin/sendmail`)
-- **Port**: 1337 (accessible uniquement sur 127.0.0.1)
+- **Dépendances**: msmtp, build-essential, python3, ca-certificates
+- **Port**: 1337 (configurable via `STRAPI_HOST` pour le bind)
 - **Volume source**: `${SRC_VOLUME}` → `/app/bob`
-- **Runtime**: `yarn install` → `yarn build` → `yarn start`
+- **Runtime**:
+  - Mode `development`: `yarn install` → `yarn develop` (hot reload)
+  - Mode `production`: `yarn install` → `yarn build` → `yarn start`
 
 ### Redis
+
 - **Image de base**: Redis 7 (Alpine)
 - **Port**: 6379 (interne au réseau Docker uniquement, non exposé)
 - **Authentification**: Mot de passe généré automatiquement avec `openssl rand -base64 32`
@@ -50,15 +56,15 @@
 
 ## Structure des fichiers
 
-```
+```text
 docker/
 ├── .env                       # Configuration centralisée (volumes, ports, environnement)
 ├── .env.example               # Exemple de configuration
 ├── docker-compose.yml         # Orchestration des services
 ├── README.md                  # Cette documentation
 ├── strapi/
-│   ├── Dockerfile            # Node 20 Alpine + Yarn + msmtp
-│   └── runtime.sh            # yarn install → yarn build → yarn start
+│   ├── Dockerfile            # Node 20 Bookworm Slim + Yarn + msmtp + build tools
+│   └── runtime.sh            # yarn install → yarn develop/build/start
 └── redis/
     ├── Dockerfile            # Redis 7 Alpine + OpenSSL
     ├── redis.conf            # Configuration Redis sécurisée
@@ -67,9 +73,62 @@ docker/
 
 ## Installation et démarrage
 
-### 1. Préparer le fichier .env de Strapi
+### 1. Configurer le fichier .env Docker
 
-Assurez-vous que le fichier `${SRC_VOLUME}/.env` (par défaut `/Users/macbook/workspace/BOB/strapi/.env`) contient les lignes suivantes :
+Copiez `.env.example` vers `.env` et configurez les variables :
+
+```bash
+cd /Users/macbook/workspace/BOB/docker
+cp .env.example .env
+```
+
+**Variables disponibles :**
+
+| Variable | Description | Exemple |
+|----------|-------------|---------|
+| `SRC_VOLUME` | Chemin vers le dossier Strapi | `/Users/macbook/workspace/BOB/strapi` |
+| `NODE_ENV` | Environnement (`development` ou `production`) | `development` |
+| `STRAPI_PORT` | Port d'écoute Strapi | `1337` |
+| `STRAPI_HOST` | IP de bind (voir section ci-dessous) | `127.0.0.1` |
+| `REDIS_PORT` | Port Redis | `6379` |
+
+#### Configuration de STRAPI_HOST (IP de bind)
+
+Cette variable contrôle sur quelle interface réseau Strapi est accessible :
+
+| Valeur | Usage | Accès |
+|--------|-------|-------|
+| `127.0.0.1` | **Local uniquement** (défaut) | Uniquement depuis la machine hôte |
+| `0.0.0.0` | **Toutes interfaces** | Accessible depuis n'importe quelle IP |
+| `192.168.x.x` | **IP LAN spécifique** | Pour dev mobile sur le même réseau |
+
+**Exemple pour développement mobile :**
+
+Si vous développez une app Flutter et devez tester sur un appareil physique :
+
+```bash
+# Récupérer votre IP locale
+ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# Mettre à jour .env avec votre IP LAN
+STRAPI_HOST=192.168.1.21
+```
+
+L'app mobile pourra alors accéder à Strapi via `http://192.168.1.21:1337`.
+
+### 2. Préparer le dossier Strapi
+
+**Supprimer node_modules** (important pour éviter les conflits de compilation) :
+
+```bash
+rm -rf /Users/macbook/workspace/BOB/strapi/node_modules
+```
+
+> **Pourquoi ?** Les modules natifs (comme `better-sqlite3`) sont compilés différemment sur macOS et Linux. En supprimant `node_modules`, le conteneur recompilera tous les modules pour son environnement Debian.
+
+**Configurer le fichier .env de Strapi** :
+
+Assurez-vous que le fichier `${SRC_VOLUME}/.env` contient les lignes suivantes :
 
 ```bash
 # ========== Redis Configuration ==========
@@ -81,31 +140,33 @@ REDIS_DB=
 
 > **Note**: Ces valeurs seront automatiquement remplies par le conteneur Redis au démarrage.
 
-### 2. Démarrer les services
+### 3. Démarrer les services
 
 ```bash
 cd /Users/macbook/workspace/BOB/docker
-docker-compose up -d
+docker compose up -d
 ```
 
 L'ordre de démarrage :
+
 1. **Redis** démarre en premier
 2. Redis génère un mot de passe sécurisé
 3. Redis met à jour le fichier `.env` de Strapi
 4. **Strapi** démarre une fois Redis healthy
 5. Strapi lit les credentials Redis depuis son `.env`
+6. En mode `development`, Strapi démarre avec hot reload (`yarn develop`)
 
-### 3. Vérifier les logs
+### 4. Vérifier les logs
 
 ```bash
 # Tous les services
-docker-compose logs -f
+docker compose logs -f
 
 # Redis uniquement
-docker-compose logs -f redis
+docker compose logs -f redis
 
 # Strapi uniquement
-docker-compose logs -f strapi
+docker compose logs -f strapi
 ```
 
 ## Fonctionnement détaillé
@@ -128,7 +189,17 @@ Au premier démarrage, le script `/usr/local/bin/entrypoint.sh` :
 
 ### Démarrage Strapi
 
-Le script `/opt/runtime.sh` exécute :
+Le script `/opt/runtime.sh` exécute selon `NODE_ENV` :
+
+**Mode development** (`NODE_ENV=development`) :
+
+```bash
+cd /app/bob
+yarn install    # Installe les dépendances
+yarn develop    # Démarre avec hot reload
+```
+
+**Mode production** (`NODE_ENV=production` ou non défini) :
 
 ```bash
 cd /app/bob
@@ -147,17 +218,17 @@ retourne `PONG`.
 
 ## Accès aux services
 
-- **Strapi**: http://127.0.0.1:1337
+- **Strapi**: `http://${STRAPI_HOST}:${STRAPI_PORT}` (par défaut `http://127.0.0.1:1337`)
 - **Redis**: Accessible uniquement depuis le réseau Docker interne `bob-network`
 
 ## Récupérer le mot de passe Redis
 
 ```bash
 # Voir dans les logs
-docker-compose logs redis | grep "Generated Redis password"
+docker compose logs redis | grep "Generated Redis password"
 
 # Lire depuis le conteneur
-docker-compose exec redis cat /data/redis_password.txt
+docker compose exec redis cat /data/redis_password.txt
 
 # Lire depuis le fichier .env de Strapi
 grep REDIS_PASSWORD /Users/macbook/workspace/BOB/strapi/.env
@@ -191,28 +262,28 @@ module.exports = ({ env }) => ({
 
 ```bash
 # Arrêter les services
-docker-compose down
+docker compose down
 
 # Reconstruire les images
-docker-compose build --no-cache
+docker compose build --no-cache
 
 # Redémarrer tout
-docker-compose restart
+docker compose restart
 
 # Supprimer volumes (⚠️ perte de données Redis)
-docker-compose down -v
+docker compose down -v
 
 # Voir les conteneurs en cours
-docker-compose ps
+docker compose ps
 
 # Shell dans Strapi
-docker-compose exec strapi sh
+docker compose exec strapi bash
 
 # Shell dans Redis
-docker-compose exec redis sh
+docker compose exec redis sh
 
 # Redis CLI
-docker-compose exec redis redis-cli -a $(docker-compose exec redis cat /data/redis_password.txt)
+docker compose exec redis redis-cli -a $(docker compose exec redis cat /data/redis_password.txt)
 ```
 
 ## Sécurité Redis
@@ -229,29 +300,39 @@ docker-compose exec redis redis-cli -a $(docker-compose exec redis cat /data/red
 ### Strapi ne peut pas se connecter à Redis
 
 Vérifiez que :
+
 1. Le fichier `.env` de Strapi contient bien les variables `REDIS_*`
-2. Redis est démarré et healthy : `docker-compose ps`
+2. Redis est démarré et healthy : `docker compose ps`
 3. Le mot de passe est correct : `grep REDIS_PASSWORD /path/to/strapi/.env`
 
 ### Redis ne démarre pas
 
 ```bash
 # Vérifier les logs
-docker-compose logs redis
+docker compose logs redis
 
 # Vérifier la config
-docker-compose exec redis cat /tmp/redis.conf
+docker compose exec redis cat /tmp/redis.conf
 ```
 
 ### Réinitialiser le mot de passe Redis
 
 ```bash
 # Arrêter les services
-docker-compose down
+docker compose down
 
 # Supprimer le volume Redis (⚠️ perte de données)
 docker volume rm docker_redis-data
 
 # Redémarrer (un nouveau mot de passe sera généré)
-docker-compose up -d
+docker compose up -d
 ```
+
+### Strapi non accessible depuis un autre appareil
+
+Si Strapi n'est pas accessible depuis un appareil mobile ou une autre machine :
+
+1. Vérifiez `STRAPI_HOST` dans `.env` Docker - doit être `0.0.0.0` ou votre IP LAN
+2. Vérifiez le pare-feu de votre machine
+3. Assurez-vous que les appareils sont sur le même réseau
+4. Testez avec : `curl http://VOTRE_IP:1337/api`
