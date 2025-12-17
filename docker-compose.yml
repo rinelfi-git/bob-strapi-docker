@@ -22,18 +22,30 @@ services:
     build:
       context: ./strapi
       dockerfile: Dockerfile
-    ports:
-      - "${STRAPI_HOST}:${STRAPI_PORT}:${STRAPI_PORT}"
+    network_mode: host
     volumes:
       - ${SRC_VOLUME}:/app/bob
     environment:
       - NODE_ENV=${NODE_ENV}
+      - MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP}
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    networks:
-      - bob-network
+
+  coturn:
+    build:
+      context: ./coturn
+      dockerfile: Dockerfile
+    container_name: bob-coturn
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf.base
+      - --external-ip=${TURN_EXTERNAL_IP}
+      - --realm=${TURN_REALM}
+      - --user=${TURN_USERNAME}:${TURN_CREDENTIAL}
 
 networks:
   bob-network:
