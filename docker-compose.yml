@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - redis-data:/data
-      - ${SRC_VOLUME}:/app/bob
+      - ${STRAPI_VOLUME}:/app/bob
     restart: unless-stopped
     networks:
       - bob-network
@@ -22,9 +22,11 @@ services:
     build:
       context: ./strapi
       dockerfile: Dockerfile
-    network_mode: host
+    ports:
+      - "1337:1337"
+      - "40000-40100:40000-40100/udp"
     volumes:
-      - ${SRC_VOLUME}:/app/bob
+      - ${STRAPI_VOLUME}:/app/bob
     environment:
       - NODE_ENV=${NODE_ENV}
       - MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP}
@@ -32,6 +34,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - bob-network
 
   coturn:
     build:
@@ -46,6 +50,22 @@ services:
       - --external-ip=${TURN_EXTERNAL_IP}
       - --realm=${TURN_REALM}
       - --user=${TURN_USERNAME}:${TURN_CREDENTIAL}
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: bob-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ${NEXT_VOLUME}:/app/web
+    environment:
+      - NODE_ENV=${NODE_ENV}
+      - API_URL=http://strapi:1337
+    networks:
+      - bob-network
 
 networks:
   bob-network:

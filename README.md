@@ -41,7 +41,7 @@
 - **Gestionnaire de packages**: Yarn (pré-installé)
 - **Dépendances**: msmtp, build-essential, python3, ca-certificates
 - **Port**: 1337 (configurable via `STRAPI_HOST` pour le bind)
-- **Volume source**: `${SRC_VOLUME}` → `/app/bob`
+- **Volume source**: `${STRAPI_VOLUME}` → `/app/bob`
 - **Runtime**:
   - Mode `development`: `yarn install` → `yarn develop` (hot reload)
   - Mode `production`: `yarn install` → `yarn build` → `yarn start`
@@ -86,7 +86,7 @@ cp .env.example .env
 
 | Variable | Description | Exemple |
 |----------|-------------|---------|
-| `SRC_VOLUME` | Chemin vers le dossier Strapi | `/Users/macbook/workspace/BOB/strapi` |
+| `STRAPI_VOLUME` | Chemin vers le dossier Strapi | `/Users/macbook/workspace/BOB/strapi` |
 | `NODE_ENV` | Environnement (`development` ou `production`) | `development` |
 | `STRAPI_PORT` | Port d'écoute Strapi | `1337` |
 | `STRAPI_HOST` | IP de bind (voir section ci-dessous) | `127.0.0.1` |
@@ -128,7 +128,7 @@ rm -rf /Users/macbook/workspace/BOB/strapi/node_modules
 
 **Configurer le fichier .env de Strapi** :
 
-Assurez-vous que le fichier `${SRC_VOLUME}/.env` contient les lignes suivantes :
+Assurez-vous que le fichier `${STRAPI_VOLUME}/.env` contient les lignes suivantes :
 
 ```bash
 # ========== Redis Configuration ==========
