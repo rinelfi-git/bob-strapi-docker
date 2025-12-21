@@ -24,7 +24,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "1337:1337"
-      - "40000-40100:40000-40100/udp"
+      # Ports RTC pour mediasoup - doit correspondre à rtcMinPort/rtcMaxPort dans config.ts
+      - "40000-40500:40000-40500/udp"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
     environment:
@@ -43,11 +44,19 @@ services:
       dockerfile: Dockerfile
     container_name: bob-coturn
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    networks:
+      - bob-network
     command:
       - -c
       - /etc/coturn/turnserver.conf.base
       - --external-ip=${TURN_EXTERNAL_IP}
+      - --relay-ip=0.0.0.0
       - --realm=${TURN_REALM}
       - --user=${TURN_USERNAME}:${TURN_CREDENTIAL}
 
