@@ -6,10 +6,14 @@ rtc:
   use_external_ip: true
   tcp_port: 7881
 
-# TURN désactivé pour le développement local
-# En production, configurer avec un domaine valide
+# TURN configuration for NAT traversal
+# Required for clients behind NAT (like Android emulator)
 turn:
-  enabled: false
+  enabled: true
+  # UDP TURN relay (port 3478)
+  udp_port: 3478
+  # TCP TURN relay (uses same port as RTC TCP)
+  # tls_port: 5349  # Uncomment for TLS in production
 
 keys:
   devkey: boblivekitsecret32characterslong

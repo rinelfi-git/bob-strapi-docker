@@ -48,6 +48,7 @@ services:
       - "7880:7880"                       # HTTP/WebSocket API
       - "7881:7881/tcp"                   # RTC over TCP
       - "3478:3478/udp"                   # TURN UDP
+      - "3478:3478/tcp"                   # TURN TCP (fallback)
       - "50000-50100:50000-50100/udp"     # RTC over UDP
     volumes:
       - ./livekit/livekit.yaml:/livekit.yaml
