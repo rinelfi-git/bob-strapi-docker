@@ -23,7 +23,7 @@ services:
       context: ./strapi
       dockerfile: Dockerfile
     ports:
-      - "1337:1337"
+      - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
     environment:
@@ -45,6 +45,7 @@ services:
     container_name: bob-livekit
     restart: unless-stopped
     ports:
+      # LiveKit = serveur RTC + TURN, doit toujours être accessible depuis l'extérieur
       - "7880:7880"                       # HTTP/WebSocket API
       - "7881:7881/tcp"                   # RTC over TCP
       - "3478:3478/udp"                   # TURN UDP
@@ -53,22 +54,6 @@ services:
     volumes:
       - ./livekit/livekit.yaml:/livekit.yaml
     command: --config /livekit.yaml --node-ip ${LIVEKIT_EXTERNAL_IP}
-    networks:
-      - bob-network
-
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: bob-web
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - ${NEXT_VOLUME}:/app/web
-    environment:
-      - NODE_ENV=${NODE_ENV}
-      - API_URL=http://strapi:1337
     networks:
       - bob-network
 
