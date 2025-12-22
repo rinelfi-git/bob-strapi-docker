@@ -24,41 +24,36 @@ services:
       dockerfile: Dockerfile
     ports:
       - "1337:1337"
-      # Ports RTC pour mediasoup - doit correspondre à rtcMinPort/rtcMaxPort dans config.ts
-      - "40000-40500:40000-40500/udp"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
     environment:
       - NODE_ENV=${NODE_ENV}
-      - MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - LIVEKIT_URL=${LIVEKIT_URL}
     depends_on:
       redis:
         condition: service_healthy
+      livekit:
+        condition: service_started
     restart: unless-stopped
     networks:
       - bob-network
 
-  coturn:
-    build:
-      context: ./coturn
-      dockerfile: Dockerfile
-    container_name: bob-coturn
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: bob-livekit
     restart: unless-stopped
     ports:
-      - "3478:3478/udp"
-      - "3478:3478/tcp"
-      - "5349:5349/udp"
-      - "5349:5349/tcp"
-      - "49152-49200:49152-49200/udp"
+      - "7880:7880"                       # HTTP/WebSocket API
+      - "7881:7881/tcp"                   # RTC over TCP
+      - "3478:3478/udp"                   # TURN UDP
+      - "50000-50100:50000-50100/udp"     # RTC over UDP
+    volumes:
+      - ./livekit/livekit.yaml:/livekit.yaml
+    command: --config /livekit.yaml --node-ip ${LIVEKIT_EXTERNAL_IP}
     networks:
       - bob-network
-    command:
-      - -c
-      - /etc/coturn/turnserver.conf.base
-      - --external-ip=${TURN_EXTERNAL_IP}
-      - --relay-ip=0.0.0.0
-      - --realm=${TURN_REALM}
-      - --user=${TURN_USERNAME}:${TURN_CREDENTIAL}
 
   web:
     build:
