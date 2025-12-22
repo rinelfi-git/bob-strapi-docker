@@ -7,13 +7,12 @@ rtc:
   tcp_port: 7881
 
 # TURN configuration for NAT traversal
-# Required for clients behind NAT (like Android emulator)
 turn:
   enabled: true
-  # UDP TURN relay (port 3478)
   udp_port: 3478
-  # TCP TURN relay (uses same port as RTC TCP)
-  # tls_port: 5349  # Uncomment for TLS in production
+  # Use the same port range as RTC for relay to avoid exposing extra ports
+  relay_range_start: 50000
+  relay_range_end: 50100
 
 keys:
   devkey: boblivekitsecret32characterslong
