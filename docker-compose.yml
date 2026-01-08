@@ -57,6 +57,28 @@ services:
     networks:
       - bob-network
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: bob-web
+    ports:
+      - "${WEB_HOST:-0.0.0.0}:3000:3000"
+    volumes:
+      - ${WEB_VOLUME:-../web}:/app/web
+    environment:
+      - NODE_ENV=development
+      # URL côté client (navigateur) - localhost car le navigateur accède depuis la machine hôte
+      - NEXT_PUBLIC_API_URL=http://localhost:1337
+      - NEXT_PUBLIC_SIGNALING_URL=ws://localhost:1337
+      # URL côté serveur (SSR) - nom du service Docker
+      - API_URL=http://strapi:1337
+    depends_on:
+      - strapi
+    restart: unless-stopped
+    networks:
+      - bob-network
+
 networks:
   bob-network:
     driver: bridge
