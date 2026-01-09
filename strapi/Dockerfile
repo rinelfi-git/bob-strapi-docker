@@ -18,6 +18,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Installer pnpm via corepack (inclus dans Node 22)
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Définir le répertoire de travail
 WORKDIR /app/bob
 
