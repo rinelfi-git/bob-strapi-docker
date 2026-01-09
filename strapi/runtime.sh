@@ -7,21 +7,9 @@ echo "   NODE_ENV: ${NODE_ENV:-production}"
 # Naviguer vers le répertoire de l'application
 cd /app/bob
 
-# Configurer pnpm pour autoriser les scripts de build (modules natifs)
-echo "📝 Configuring pnpm to allow build scripts..."
-cat > .npmrc << 'EOF'
-# Autoriser tous les scripts de build (nécessaire pour better-sqlite3, mediasoup, sharp, etc.)
-ignore-scripts=false
-side-effects-cache=true
-EOF
-
-# Nettoyer node_modules si les modules natifs ne sont pas compilés
-if [ ! -f "node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/build/Release/better_sqlite3.node" ]; then
-  echo "🧹 Cleaning node_modules to rebuild native modules..."
-  rm -rf node_modules
-fi
-
 echo "📦 Installing dependencies with pnpm..."
+# --frozen-lockfile: utilise le lockfile existant (plus rapide, reproductible)
+# Fallback sur pnpm install normal si pas de lockfile
 pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 
 # Supprimer les types générés pour forcer la régénération
@@ -36,7 +24,10 @@ if [ "$NODE_ENV" = "development" ]; then
   echo "   (Types will be auto-generated on startup)"
   exec pnpm develop
 else
-  # En prod: build puis start
+  # En prod: générer les types, puis build, puis start
+  echo "🔄 Generating TypeScript types..."
+  # Timeout de 120s pour la génération des types (peut prendre du temps)
+  timeout 30 pnpm strapi ts:generate-types --silent || echo "⚠️  Types generation timed out, continuing..."
   echo "🔨 Mode PRODUCTION - Building Strapi..."
   pnpm build
   echo "▶️  Starting Strapi..."
