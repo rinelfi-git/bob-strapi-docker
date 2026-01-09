@@ -26,7 +26,6 @@ services:
       - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
-      - ${HOME}/.pnpm-store:/root/.local/share/pnpm/store
     environment:
       - NODE_ENV=${NODE_ENV}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
