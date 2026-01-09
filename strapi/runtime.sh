@@ -22,7 +22,8 @@ else
   echo "🔨 Mode PRODUCTION - Building Strapi..."
   yarn build
   echo "🔄 Generating TypeScript types..."
-  yarn strapi ts:generate-types
+  # Timeout car ts:generate-types reste bloqué (connexions Redis/APNs/Firebase ouvertes)
+  timeout 30 yarn strapi ts:generate-types || echo "⚠️ Typegen terminé (timeout normal)"
   echo "▶️  Starting Strapi..."
   exec yarn start
 fi
