@@ -10,17 +10,19 @@ cd /app/bob
 echo "📦 Installing dependencies with yarn..."
 yarn install
 
-# Générer les types TypeScript (nécessaire pour la compilation)
-echo "🔄 Generating TypeScript types..."
-yarn strapi ts:generate-types
-
 # Vérifier l'environnement
 if [ "$NODE_ENV" = "development" ]; then
+  # En dev: générer les types puis lancer develop
+  echo "🔄 Generating TypeScript types..."
+  yarn strapi ts:generate-types
   echo "🔧 Mode DEVELOPMENT - Starting with yarn develop..."
   exec yarn develop
 else
+  # En prod: build, générer les types, puis start
   echo "🔨 Mode PRODUCTION - Building Strapi..."
   yarn build
+  echo "🔄 Generating TypeScript types..."
+  yarn strapi ts:generate-types
   echo "▶️  Starting Strapi..."
   exec yarn start
 fi
