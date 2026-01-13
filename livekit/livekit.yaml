@@ -1,10 +1,23 @@
 port: 7880
 
 rtc:
+  # Port range: ~2 ports per participant per media type (audio+video)
+  # 50 participants × 2 streams × 2 ports = 200 ports minimum
   port_range_start: 50000
-  port_range_end: 50100
+  port_range_end: 50200
   use_external_ip: true
   tcp_port: 7881
+  # Optimizations for mobile video
+  # PLI = Picture Loss Indication - request keyframe on packet loss
+  pli_throttle:
+    low_quality: 500ms    # Request keyframes more frequently for low quality
+    mid_quality: 1s
+    high_quality: 2s
+  # Congestion control - better adaptation to network changes
+  congestion_control:
+    enabled: true
+    # Probe bandwidth more aggressively for faster quality ramp-up
+    probe_mode: padding
 
 # TURN configuration for NAT traversal
 turn:
@@ -12,20 +25,30 @@ turn:
   udp_port: 3478
   # Use the same port range as RTC for relay to avoid exposing extra ports
   relay_range_start: 50000
-  relay_range_end: 50100
+  relay_range_end: 50200
 
 # Room configuration for optimized group calls
 room:
   # Timeout for empty rooms (5 minutes = 300 seconds)
   empty_timeout: 300
   # Max participants per room
-  max_participants: 20
+  max_participants: 50
   # Enable codec preference - H264 first for hardware encoding
   enabled_codecs:
     - mime: video/H264
       fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
     - mime: video/VP8
     - mime: audio/opus
+  # Playout delay for smoother video (reduces jitter impact)
+  playout_delay:
+    enabled: true
+    min: 100ms
+    max: 300ms
+
+# Video quality configuration
+video:
+  # Enable dynacast by default (pause unused layers)
+  dynacast: true
 
 keys:
   devkey: boblivekitsecret32characterslong

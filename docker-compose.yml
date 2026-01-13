@@ -50,10 +50,25 @@ services:
       - "7881:7881/tcp"                   # RTC over TCP
       - "3478:3478/udp"                   # TURN UDP
       - "3478:3478/tcp"                   # TURN TCP (fallback)
-      - "50000-50100:50000-50100/udp"     # RTC over UDP
+      - "50000-50200:50000-50200/udp"     # RTC over UDP (200 ports for 50 participants)
     volumes:
       - ./livekit/livekit.yaml:/livekit.yaml
     command: --config /livekit.yaml --node-ip ${LIVEKIT_EXTERNAL_IP}
+    # Resource limits for 50 participants
+    # Rule of thumb: ~100MB RAM per participant, ~0.1 CPU per video stream
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    # UDP buffer sizes for better RTC performance (scaled for 50 participants)
+    sysctls:
+      - net.core.rmem_max=8000000
+      - net.core.wmem_max=8000000
+      - net.core.netdev_max_backlog=5000
     networks:
       - bob-network
 
