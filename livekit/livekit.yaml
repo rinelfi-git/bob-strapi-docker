@@ -16,8 +16,7 @@ rtc:
   # Congestion control - better adaptation to network changes
   congestion_control:
     enabled: true
-    # Probe bandwidth more aggressively for faster quality ramp-up
-    probe_mode: padding
+    allow_pause: true
 
 # TURN configuration for NAT traversal
 turn:
@@ -40,15 +39,13 @@ room:
     - mime: video/VP8
     - mime: audio/opus
   # Playout delay for smoother video (reduces jitter impact)
+  # Values in milliseconds (integers, not strings)
   playout_delay:
     enabled: true
-    min: 100ms
-    max: 300ms
-
-# Video quality configuration
-video:
-  # Enable dynacast by default (pause unused layers)
-  dynacast: true
+    min: 100
+    max: 300
+  # Sync audio and video streams
+  sync_streams: true
 
 keys:
   devkey: boblivekitsecret32characterslong
