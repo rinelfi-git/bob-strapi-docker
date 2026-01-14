@@ -7,48 +7,92 @@ rtc:
   port_range_end: 50200
   use_external_ip: true
   tcp_port: 7881
-  # Optimizations for mobile video
+
+  # Allow fallback to TCP/TURN when UDP is unstable (important for mobile)
+  allow_tcp_fallback: true
+
+  # Packet buffer sizes (increase for better quality on unstable networks)
+  packet_buffer_size_video: 500
+  packet_buffer_size_audio: 200
+
   # PLI = Picture Loss Indication - request keyframe on packet loss
+  # More aggressive for mobile to recover faster from packet loss
   pli_throttle:
-    low_quality: 500ms    # Request keyframes more frequently for low quality
+    low_quality: 500ms
     mid_quality: 1s
     high_quality: 2s
+
   # Congestion control - better adaptation to network changes
   congestion_control:
     enabled: true
     allow_pause: true
 
-# TURN configuration for NAT traversal
+# TURN configuration for NAT traversal (critical for mobile behind strict NAT)
 turn:
   enabled: true
   udp_port: 3478
-  # Use the same port range as RTC for relay to avoid exposing extra ports
+  # Use the same port range as RTC for relay
   relay_range_start: 50000
   relay_range_end: 50200
 
 # Room configuration for optimized group calls
 room:
-  # Timeout for empty rooms (5 minutes = 300 seconds)
+  # Auto-create rooms when participants join
+  auto_create: true
+  # Timeout for empty rooms (5 minutes)
   empty_timeout: 300
+  # Timeout after last participant leaves (20 seconds)
+  departure_timeout: 20
   # Max participants per room
   max_participants: 50
-  # Enable codec preference - H264 first for hardware encoding
+  # Allow remote unmute (for moderation features)
+  enable_remote_unmute: true
+
+  # Codec preference - H264 first for hardware encoding on mobile
   enabled_codecs:
     - mime: video/H264
       fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
     - mime: video/VP8
     - mime: audio/opus
+
   # Playout delay for smoother video (reduces jitter impact)
-  # Values in milliseconds (integers, not strings)
   playout_delay:
     enabled: true
     min: 100
     max: 300
-  # Sync audio and video streams
+
+  # Sync audio and video streams for better A/V sync
   sync_streams: true
+
+# Audio configuration for voice activity detection
+audio:
+  # Speaker detection threshold (0-127, lower = more sensitive)
+  active_level: 30
+  # Activity detection percentile
+  min_percentile: 40
+  # How often to update active speakers (ms)
+  update_interval: 500
+  # Smoothing samples for stable speaker detection
+  smooth_intervals: 4
+  # Enable RED encoding for Opus (redundancy for packet loss)
+  active_red_encoding: true
+
+# Resource limits
+limit:
+  # Tracks per CPU core
+  num_tracks: 400
+  # Max subscriptions per participant (video)
+  subscription_limit_video: 10
+  # Max subscriptions per participant (audio)
+  subscription_limit_audio: 20
 
 keys:
   devkey: boblivekitsecret32characterslong
 
 logging:
   level: info
+  # Enable JSON logs for easier parsing
+  json: false
+
+# Prometheus metrics (optional - for monitoring)
+# prometheus_port: 6789
