@@ -6,6 +6,7 @@ echo "   NODE_ENV: ${NODE_ENV:-production}"
 
 # Naviguer vers le répertoire de l'application
 cd /app/bob
+rm -rf /app/bob/dist
 
 echo "📦 Installing dependencies with pnpm..."
 # Importer yarn.lock si pnpm-lock.yaml n'existe pas
