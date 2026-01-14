@@ -64,11 +64,7 @@ services:
         reservations:
           cpus: '1'
           memory: 1G
-    # UDP buffer sizes for better RTC performance (scaled for 50 participants)
-    sysctls:
-      - net.core.rmem_max=8000000
-      - net.core.wmem_max=8000000
-      - net.core.netdev_max_backlog=5000
+    # Note: sysctls (net.core.rmem_max, etc.) removed - not supported on macOS Docker Desktop
     networks:
       - bob-network
 
