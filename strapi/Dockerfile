@@ -18,8 +18,8 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Activer pnpm via corepack
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Activer yarn via corepack
+RUN corepack enable && corepack prepare yarn@stable --activate
 
 # Définir le répertoire de travail
 WORKDIR /app/bob

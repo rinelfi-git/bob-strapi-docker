@@ -8,23 +8,18 @@ echo "   NODE_ENV: ${NODE_ENV:-production}"
 cd /app/bob
 rm -rf /app/bob/dist
 
-echo "📦 Installing dependencies with pnpm..."
-# Importer yarn.lock si pnpm-lock.yaml n'existe pas
-if [ ! -f pnpm-lock.yaml ] && [ -f yarn.lock ]; then
-  echo "   Importing yarn.lock to pnpm-lock.yaml..."
-  pnpm import
-fi
-pnpm install
+echo "📦 Installing dependencies with yarn..."
+yarn install
 
 # Vérifier l'environnement
 if [ "$NODE_ENV" = "development" ]; then
   # En dev: générer les types puis lancer develop
-  echo "🔧 Mode DEVELOPMENT - Starting with pnpm develop..."
-  exec pnpm develop
+  echo "🔧 Mode DEVELOPMENT - Starting with yarn develop..."
+  exec yarn develop
 else
   # En prod: build puis start
   echo "🔨 Mode PRODUCTION - Building Strapi..."
-  pnpm build
+  yarn build
   echo "▶️  Starting Strapi..."
-  exec pnpm start
+  exec yarn start
 fi
