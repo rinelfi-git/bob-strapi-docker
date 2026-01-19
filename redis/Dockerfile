@@ -1,8 +1,9 @@
-# Utiliser Redis 7 Alpine comme image de base
-FROM redis:7-alpine
+# Utiliser Redis 7 Bookworm slim comme image de base
+FROM redis:7-bookworm
 
 # Installer openssl pour générer le mot de passe
-RUN apk add --no-cache openssl
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Créer le répertoire de configuration
 RUN mkdir -p /usr/local/etc/redis
