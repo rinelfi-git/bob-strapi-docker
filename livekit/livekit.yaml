@@ -89,6 +89,13 @@ limit:
 keys:
   devkey: boblivekitsecret32characterslong
 
+# Webhook configuration - notify backend when participants join/leave
+# api_key must match one of the keys defined above
+webhook:
+  api_key: devkey
+  urls:
+    - http://strapi:1337/api/livekit-webhook
+
 logging:
   level: info
   # Enable JSON logs for easier parsing
