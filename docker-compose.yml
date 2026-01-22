@@ -1,10 +1,32 @@
 name: bob
 
 services:
+  postgresql:
+    build:
+      context: ./postgresql
+      dockerfile: Dockerfile
+    container_name: postgresql
+    volumes:
+      - ${POSTGRES_VOLUME}:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    restart: unless-stopped
+    networks:
+      - bob-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   redis:
     build:
       context: ./redis
       dockerfile: Dockerfile
+    container_name: redis
     volumes:
       - redis-data:/data
       - ${STRAPI_VOLUME}:/app/bob
@@ -22,6 +44,7 @@ services:
     build:
       context: ./strapi
       dockerfile: Dockerfile
+    container_name: strapi
     ports:
       - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
     volumes:
@@ -32,6 +55,8 @@ services:
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - LIVEKIT_URL=${LIVEKIT_URL}
     depends_on:
+      postgresql:
+        condition: service_healthy
       redis:
         condition: service_healthy
       livekit:
