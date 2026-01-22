@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     locales \
+    gosu \
     && echo "fr_FR.UTF-8 UTF-8" >> /etc/locale.gen \
     && locale-gen \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
@@ -33,6 +34,7 @@ RUN mkdir -p /var/lib/postgresql/data \
 # Copier les fichiers de configuration
 COPY postgresql.conf /etc/postgresql/postgresql.conf
 COPY pg_hba.conf /etc/postgresql/pg_hba.conf
+RUN chown postgres:postgres /etc/postgresql/*.conf
 
 # Copier le script d'entrypoint
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -41,8 +43,5 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # Exposer le port PostgreSQL
 EXPOSE 5432
 
-# Exécuter en tant qu'utilisateur postgres
-USER postgres
-
-# Point d'entrée
+# Démarrer en root pour fixer les permissions, puis passer à postgres
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
