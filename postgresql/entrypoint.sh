@@ -19,23 +19,13 @@ chown -R postgres:postgres /var/run/postgresql
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
     echo "📦 Initialisation du cluster PostgreSQL..."
 
-    # Créer un fichier temporaire pour le mot de passe superuser
-    PWFILE=$(mktemp)
-    echo "postgres" > "$PWFILE"
-    chown postgres:postgres "$PWFILE"
-    chmod 600 "$PWFILE"
-
-    # Initialiser le cluster en tant que postgres
+    # Initialiser le cluster avec auth=trust pour permettre la configuration initiale
     su postgres -c "/usr/lib/postgresql/16/bin/initdb \
         --username=postgres \
         --encoding=UTF8 \
         --locale=fr_FR.UTF-8 \
-        --auth=scram-sha-256 \
-        --pwfile=$PWFILE \
+        --auth=trust \
         -D $PGDATA"
-
-    # Supprimer le fichier temporaire
-    rm -f "$PWFILE"
 
     echo "✅ Cluster PostgreSQL initialisé"
 
@@ -54,6 +44,11 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
 
     # Arrêter PostgreSQL temporaire
     su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -m fast -w stop"
+
+    # Copier la configuration sécurisée (scram-sha-256)
+    echo "🔒 Application de la configuration sécurisée..."
+    cp /etc/postgresql/pg_hba.conf "$PGDATA/pg_hba.conf"
+    chown postgres:postgres "$PGDATA/pg_hba.conf"
 
     echo "✅ Configuration initiale terminée"
     echo "   Utilisateur: $POSTGRES_USER"
