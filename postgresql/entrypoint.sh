@@ -22,23 +22,20 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     # Créer un fichier temporaire pour le mot de passe superuser
     PWFILE=$(mktemp)
     echo "postgres" > "$PWFILE"
+    chown postgres:postgres "$PWFILE"
     chmod 600 "$PWFILE"
 
-    # Initialiser le cluster en tant que root
-    /usr/lib/postgresql/16/bin/initdb \
+    # Initialiser le cluster en tant que postgres
+    su postgres -c "/usr/lib/postgresql/16/bin/initdb \
         --username=postgres \
         --encoding=UTF8 \
         --locale=fr_FR.UTF-8 \
         --auth=scram-sha-256 \
-        --pwfile="$PWFILE" \
-        -D "$PGDATA"
+        --pwfile=$PWFILE \
+        -D $PGDATA"
 
     # Supprimer le fichier temporaire
     rm -f "$PWFILE"
-
-    # Changer les permissions pour postgres
-    chown -R postgres:postgres "$PGDATA"
-    chmod 700 "$PGDATA"
 
     echo "✅ Cluster PostgreSQL initialisé"
 
