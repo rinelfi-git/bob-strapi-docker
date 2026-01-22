@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     locales \
-    gosu \
     && echo "fr_FR.UTF-8 UTF-8" >> /etc/locale.gen \
     && locale-gen \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
