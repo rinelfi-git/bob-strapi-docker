@@ -87,12 +87,12 @@ limit:
   subscription_limit_audio: 20
 
 keys:
-  devkey: boblivekitsecret32characterslong
+  api_key: q9HbG9XePMquhQzaH3zveHMhG9UX6zLe
 
 # Webhook configuration - notify backend when participants join/leave
 # api_key must match one of the keys defined above
 webhook:
-  api_key: devkey
+  api_key: api_key
   urls:
     - http://strapi:1337/api/livekit-webhook
 
