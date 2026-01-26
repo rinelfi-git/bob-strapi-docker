@@ -11,21 +11,31 @@ rtc:
   # Allow fallback to TCP/TURN when UDP is unstable (important for mobile)
   allow_tcp_fallback: true
 
-  # Packet buffer sizes (increase for better quality on unstable networks)
-  packet_buffer_size_video: 500
-  packet_buffer_size_audio: 200
+  # ══════════════════════════════════════════════════════════════════════
+  # LATENCY OPTIMIZATION - Based on LiveKit documentation
+  # https://github.com/livekit/livekit/blob/master/config-sample.yaml
+  # ══════════════════════════════════════════════════════════════════════
+
+  # Packet buffer sizes - REDUCED for lower latency
+  # Default is 500/200, but smaller buffers = less delay
+  # Trade-off: may increase packet loss impact on poor networks
+  packet_buffer_size_video: 200
+  packet_buffer_size_audio: 100
 
   # PLI = Picture Loss Indication - request keyframe on packet loss
-  # More aggressive for mobile to recover faster from packet loss
+  # VERY AGGRESSIVE for Android→iOS H.264 compatibility
+  # Frequent keyframes help recover from profile/decoding issues
   pli_throttle:
-    low_quality: 500ms
-    mid_quality: 1s
-    high_quality: 2s
+    low_quality: 100ms    # Very fast keyframe requests
+    mid_quality: 200ms
+    high_quality: 400ms   # More frequent than default
 
   # Congestion control - better adaptation to network changes
   congestion_control:
     enabled: true
-    allow_pause: true
+    # allow_pause: Pause low-priority tracks during congestion
+    # Set to false to prevent video freezing, prefer quality degradation instead
+    allow_pause: false
 
 # TURN configuration for NAT traversal (critical for mobile behind strict NAT)
 turn:
@@ -48,21 +58,34 @@ room:
   # Allow remote unmute (for moderation features)
   enable_remote_unmute: true
 
-  # Codec preference - H264 first for hardware encoding on mobile
+  # Codec configuration - VP8 for cross-platform compatibility
+  #
+  # Problem: Android hardware H.264 encoders (especially on budget devices)
+  # produce streams that iOS decoders struggle with, causing visual tearing.
+  #
+  # VP8 is software-encoded, so it's consistent across all devices.
+  # CPU impact is minimal on modern devices (2018+).
   enabled_codecs:
-    - mime: video/H264
-      fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+    # VP8 - software codec, consistent cross-platform behavior
     - mime: video/VP8
+    # Audio - Opus is the standard WebRTC audio codec
     - mime: audio/opus
 
-  # Playout delay for smoother video (reduces jitter impact)
+  # ══════════════════════════════════════════════════════════════════════
+  # PLAYOUT DELAY - Critical for latency
+  # https://www.gethopp.app/blog/latency-exploration
+  # ══════════════════════════════════════════════════════════════════════
+  # Lower values = less buffering = lower latency
+  # Trade-off: more sensitive to jitter
   playout_delay:
     enabled: true
-    min: 100
-    max: 300
+    min: 0       # Was 100ms - allow minimal buffering
+    max: 150     # Was 300ms - reduced maximum buffer
 
   # Sync audio and video streams for better A/V sync
-  sync_streams: true
+  # Note: sync_streams adds ~50-100ms latency but improves quality
+  # Disable if latency is more important than perfect A/V sync
+  sync_streams: false
 
 # Audio configuration for voice activity detection
 audio:
@@ -70,11 +93,12 @@ audio:
   active_level: 30
   # Activity detection percentile
   min_percentile: 40
-  # How often to update active speakers (ms)
-  update_interval: 500
+  # How often to update active speakers (ms) - REDUCED for faster updates
+  update_interval: 300   # Was 500ms
   # Smoothing samples for stable speaker detection
-  smooth_intervals: 4
+  smooth_intervals: 2    # Was 4 - faster response
   # Enable RED encoding for Opus (redundancy for packet loss)
+  # Adds slight overhead but helps with packet loss recovery
   active_red_encoding: true
 
 # Resource limits
@@ -87,12 +111,12 @@ limit:
   subscription_limit_audio: 20
 
 keys:
-  api_key: q9HbG9XePMquhQzaH3zveHMhG9UX6zLe
+  livekit: sTDqA5LKNRM5jf7rLsD7Z7So23BwiNgb
 
 # Webhook configuration - notify backend when participants join/leave
 # api_key must match one of the keys defined above
 webhook:
-  api_key: api_key
+  api_key: livekit
   urls:
     - http://strapi:1337/api/livekit-webhook
 
