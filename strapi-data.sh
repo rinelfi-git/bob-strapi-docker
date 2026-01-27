@@ -115,29 +115,8 @@ do_restore() {
     tar -xzf "$ARCHIVE_FILE" -C "$RESTORE_DIR"
     log_success "Archive décompressée"
 
-    # 2. Restaurer les uploads
-    log_info "Restauration des uploads..."
-
-    if [ -f "$RESTORE_DIR/uploads.tar.gz" ]; then
-        # Supprimer l'ancien dossier uploads dans le container
-        log_info "Suppression de l'ancien dossier uploads..."
-        docker compose exec -T strapi rm -rf /app/bob/public/uploads
-
-        # Copier l'archive uploads dans le container
-        docker compose cp "$RESTORE_DIR/uploads.tar.gz" strapi:/tmp/uploads.tar.gz
-
-        # Décompresser dans le bon dossier
-        docker compose exec -T strapi tar -xzf /tmp/uploads.tar.gz -C /app/bob/public
-
-        # Nettoyer
-        docker compose exec -T strapi rm -f /tmp/uploads.tar.gz
-
-        log_success "Uploads restaurés"
-    else
-        log_warning "Fichier uploads.tar.gz non trouvé dans l'archive"
-    fi
-
-    # 3. Restaurer la base de données
+    # 2. Restaurer la base de données EN PREMIER
+    # (l'import Strapi peut supprimer/recréer le dossier uploads)
     log_info "Restauration de la base de données..."
 
     if [ -f "$RESTORE_DIR/database.tar.gz" ]; then
@@ -155,6 +134,31 @@ do_restore() {
         log_error "Fichier database.tar.gz non trouvé dans l'archive"
         rm -rf "$RESTORE_DIR"
         exit 1
+    fi
+
+    # 3. Restaurer les uploads APRÈS l'import de la base de données
+    log_info "Restauration des uploads..."
+
+    if [ -f "$RESTORE_DIR/uploads.tar.gz" ]; then
+        # Supprimer l'ancien dossier uploads dans le container
+        log_info "Suppression de l'ancien dossier uploads..."
+        docker compose exec -T strapi rm -rf /app/bob/public/uploads
+
+        # Créer le dossier public s'il n'existe pas
+        docker compose exec -T strapi mkdir -p /app/bob/public
+
+        # Copier l'archive uploads dans le container
+        docker compose cp "$RESTORE_DIR/uploads.tar.gz" strapi:/tmp/uploads.tar.gz
+
+        # Décompresser dans le bon dossier
+        docker compose exec -T strapi tar -xzf /tmp/uploads.tar.gz -C /app/bob/public
+
+        # Nettoyer
+        docker compose exec -T strapi rm -f /tmp/uploads.tar.gz
+
+        log_success "Uploads restaurés"
+    else
+        log_warning "Fichier uploads.tar.gz non trouvé dans l'archive"
     fi
 
     # Nettoyer le répertoire temporaire
