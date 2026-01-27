@@ -1,12 +1,22 @@
-# Utiliser Node 22 LTS sur Debian Bookworm (inclut build tools)
-FROM node:22-bookworm
+# Utiliser Node 20 LTS sur Debian Bookworm Slim
+FROM node:20-bookworm-slim
 
-# Installer msmtp (alternative légère à sendmail)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends msmtp && \
-    ln -sf /usr/bin/msmtp /usr/sbin/sendmail && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Installer les dépendances de build et outils nécessaires
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Build essentials pour les modules natifs Node.js
+    build-essential \
+    python3 \
+    # Pour msmtp (alternative légère à sendmail)
+    msmtp \
+    # Outils utiles
+    git \
+    ca-certificates \
+    && ln -sf /usr/bin/msmtp /usr/sbin/sendmail \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Mettre à jour npm et npx à la dernière version
+RUN npm install -g npm@latest
 
 # Activer yarn via corepack
 RUN corepack enable && corepack prepare yarn@stable --activate
