@@ -28,7 +28,7 @@ services:
       dockerfile: Dockerfile
     container_name: redis
     volumes:
-      - redis-data:/data
+      - ${REDIS_VOLUME}:/data
       - ${STRAPI_VOLUME}:/app/bob
     restart: unless-stopped
     networks:
@@ -86,6 +86,3 @@ networks:
   bob-network:
     driver: bridge
 
-volumes:
-  redis-data:
-    driver: local
