@@ -1,399 +1,551 @@
-# Docker Configuration for BOB - Strapi + PostgreSQL + Redis + LiveKit
+# Docker Configuration for BOB - Blue-Green Deployment
 
-## Dependances
+## Vue d'ensemble
 
-### Strapi Container
-
-| Dependance | Version | Description |
-|------------|---------|-------------|
-| **Node.js** | 20 LTS | Runtime JavaScript (image Debian Bookworm Slim) |
-| **npm** | Latest | Gestionnaire de packages (mis a jour au build) |
-| **Yarn** | Stable | Gestionnaire de packages (via corepack) |
-| **msmtp** | Latest | Client SMTP leger, remplace sendmail |
-| **build-essential** | Latest | Outils de compilation (gcc, g++, make) pour modules natifs |
-| **python3** | Latest | Requis pour compiler certains modules Node.js (better-sqlite3, etc.) |
-| **git** | Latest | Gestion de version |
-| **ca-certificates** | Latest | Certificats TLS pour connexions securisees (APNs, etc.) |
-
-**Note sur l'image de base** : Nous utilisons `node:20-bookworm-slim` (Debian) au lieu d'Alpine pour une meilleure compatibilite avec les modules natifs et le reseau. Le symlink `/usr/sbin/sendmail` → `/usr/bin/msmtp` assure la compatibilite avec Strapi.
-
-### PostgreSQL Container
-
-| Dependance | Version | Description |
-|------------|---------|-------------|
-| **PostgreSQL** | 16 (Alpine) | Base de donnees relationnelle |
-| **musl-locales** | Latest | Support des locales (fr_FR.UTF-8) |
-| **icu-data-full** | Latest | Donnees ICU pour collations |
-
-### Redis Container
-
-| Dependance | Version | Description |
-|------------|---------|-------------|
-| **Redis Server** | 7 (Alpine) | Base de donnees en memoire avec persistance AOF |
-| **OpenSSL** | Latest | Generation securisee de mot de passe (`openssl rand -base64 32`) |
-
-### LiveKit Container
-
-| Dependance | Version | Description |
-|------------|---------|-------------|
-| **LiveKit Server** | Latest | Serveur WebRTC/RTC pour video et audio |
+L'infrastructure Docker de BOB utilise un **deploiement blue-green** pour Strapi, permettant des mises a jour **zero-downtime**. Deux conteneurs Strapi (`strapi-master` et `strapi-slave`) partagent le meme volume d'uploads et la meme base de donnees. Nginx bascule automatiquement le trafic vers le conteneur disponible.
 
 ## Architecture
 
-### Strapi
+```
+                         ┌──────────────────────┐
+                         │    Nginx (host)       │
+                         │    :80 / :443         │
+                         └──────────┬────────────┘
+                                    │
+                          upstream strapi_backend
+                       ┌────────────┴────────────┐
+                       │                         │
+                  :1337 (principal)         :1338 (backup)
+              ┌────────┴────────┐     ┌──────────┴──────────┐
+              │  strapi-master  │     │   strapi-slave       │
+              │  CRON_ENABLED=  │     │   CRON_ENABLED=      │
+              │  true           │     │   false               │
+              └────────┬────────┘     └──────────┬───────────┘
+                       │                         │
+                       └────────────┬────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │   Volume partage (uploads)    │
+                    │   ${UPLOADS_VOLUME} →          │
+                    │   /app/bob/public/uploads      │
+                    └───────────────────────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────┐
+              │                     │                     │
+        ┌─────┴─────┐        ┌─────┴─────┐        ┌──────┴──────┐
+        │ PostgreSQL │        │   Redis   │        │   LiveKit   │
+        │ :5432      │        │   :6379   │        │   :7880     │
+        └───────────┘        └───────────┘        └─────────────┘
 
-- **Image de base**: `node:20-bookworm-slim` (Debian)
-- **Gestionnaire de packages**: Yarn (via corepack)
-- **Dependances**: msmtp, build-essential, python3, git, ca-certificates
-- **Port**: 1337 (configurable via `STRAPI_HOST` pour le bind)
-- **Volume source**: `${STRAPI_VOLUME}` → `/app/bob`
-- **Runtime**:
-  - Mode `development`: `yarn install` → `yarn develop` (hot reload)
-  - Mode `production`: `yarn install` → `yarn build` → `yarn start`
+                         Reseau Docker : bob-network
+```
 
-### PostgreSQL
+### Comment ca marche
 
-- **Image de base**: `postgres:16-alpine`
-- **Port**: 5432 (interne au reseau Docker)
-- **Locale**: fr_FR.UTF-8 (via musl-locales)
-- **Authentification**: SCRAM-SHA-256
-- **Configuration personnalisee**: `/etc/postgresql/postgresql.conf`
+- **strapi-master** (port 1337) est le serveur **principal** dans Nginx
+- **strapi-slave** (port 1338) est le serveur **backup** dans Nginx
+- En temps normal, seul `strapi-master` tourne. `strapi-slave` est eteint
+- Pendant un deploiement, `strapi-slave` prend temporairement le relais
+- Nginx bascule **automatiquement** via `proxy_next_upstream` (pas besoin de recharger la config)
+- Seul `strapi-master` execute les **crons** (rappels pre/post pret)
 
-### Redis
+## Services
 
-- **Image de base**: `redis:7-alpine`
-- **Port**: 6379 (interne au reseau Docker uniquement, non expose)
-- **Authentification**: Mot de passe genere automatiquement avec `openssl rand -base64 32`
-- **Persistance**: AOF (Append Only File)
-- **Securite**: Commandes dangereuses desactivees (`FLUSHDB`, `FLUSHALL`, `CONFIG`)
-
-### LiveKit
-
-- **Image de base**: `livekit/livekit-server:latest`
-- **Ports**:
-  - 7880: HTTP/WebSocket API
-  - 7881/tcp: RTC over TCP
-  - 3478/udp+tcp: TURN
-  - 50000-50200/udp: RTC over UDP
+| Service | Image | Port host | Description |
+|---------|-------|-----------|-------------|
+| `strapi-master` | `bob-strapi:latest` | 1337 | Instance Strapi principale (crons actifs) |
+| `strapi-slave` | `bob-strapi:latest` | 1338 | Instance Strapi backup (crons desactives). Profil: `blue-green` |
+| `strapi-dev` | Dockerfile.dev | 1337 | Mode developpement avec hot-reload. Profil: `dev` |
+| `postgresql` | postgres:16-alpine | 5432 (interne) | Base de donnees |
+| `redis` | redis:7-alpine | 6379 (interne) | Cache et files d'attente (Bull) |
+| `livekit` | livekit-server:latest | 7880, 7881, 3478, 50000-50200 | Serveur WebRTC |
 
 ## Structure des fichiers
 
-```text
+```
 docker/
-├── .env                       # Configuration centralisee (volumes, ports, environnement)
-├── .env.example               # Exemple de configuration
-├── docker-compose.yml         # Orchestration des services
-├── README.md                  # Cette documentation
+├── .env                          # Variables d'environnement (volumes, mots de passe, etc.)
+├── .env.example                  # Exemple de .env
+├── docker-compose.yml            # Orchestration de tous les services
+├── deploy.sh                     # Script de deploiement blue-green
+├── README.md                     # Cette documentation
+├── strapi-data.sh                # Script de backup/restore
 ├── strapi/
-│   ├── Dockerfile            # Node 20 Bookworm Slim + Yarn + msmtp + build tools
-│   └── runtime.sh            # yarn install → yarn develop/build/start
+│   ├── Dockerfile                # Multi-stage build pour la production
+│   └── Dockerfile.dev            # Image dev (volume mount + yarn develop)
 ├── postgresql/
-│   ├── Dockerfile            # PostgreSQL 16 Alpine + musl-locales
-│   ├── postgresql.conf       # Configuration PostgreSQL
-│   ├── pg_hba.conf           # Configuration authentification
-│   └── entrypoint.sh         # Initialisation cluster + creation user/db
+│   ├── Dockerfile                # PostgreSQL 16 Alpine + locales fr_FR
+│   ├── postgresql.conf           # Configuration PostgreSQL
+│   ├── pg_hba.conf               # Configuration authentification
+│   └── entrypoint.sh             # Initialisation cluster + creation user/db
 ├── redis/
-│   ├── Dockerfile            # Redis 7 Alpine + OpenSSL
-│   ├── redis.conf            # Configuration Redis securisee
-│   └── entrypoint.sh         # Generation mot de passe + MAJ .env Strapi
+│   ├── Dockerfile                # Redis 7 Alpine
+│   ├── redis.conf                # Configuration Redis securisee
+│   └── entrypoint.sh             # Demarrage avec mot de passe
+├── nginx/
+│   └── bob.strapi-pro.com.conf   # Config Nginx avec upstream blue-green
 └── livekit/
-    └── livekit.yaml          # Configuration LiveKit
+    └── livekit.yaml              # Configuration LiveKit
 ```
 
-## Installation et demarrage
+## Installation
 
-### 1. Configurer le fichier .env Docker
-
-Copiez `.env.example` vers `.env` et configurez les variables :
+### 1. Configurer les variables d'environnement
 
 ```bash
-cd /Users/macbook/workspace/BOB/docker
+cd docker
 cp .env.example .env
 ```
 
-**Variables disponibles :**
+Editez `.env` avec vos valeurs :
 
 | Variable | Description | Exemple |
 |----------|-------------|---------|
-| `STRAPI_VOLUME` | Chemin vers le dossier Strapi | `/Users/macbook/workspace/BOB/strapi` |
-| `NODE_ENV` | Environnement (`development` ou `production`) | `development` |
-| `STRAPI_HOST` | IP de bind (voir section ci-dessous) | `127.0.0.1` |
-| `POSTGRES_VOLUME` | Chemin vers les donnees PostgreSQL | `./data/postgresql` |
-| `POSTGRES_USER` | Utilisateur PostgreSQL | `bob` |
-| `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | `votre_mot_de_passe` |
-| `POSTGRES_DB` | Nom de la base de donnees | `bob` |
-| `LIVEKIT_API_KEY` | Cle API LiveKit | `votre_cle` |
-| `LIVEKIT_API_SECRET` | Secret API LiveKit | `votre_secret` |
-| `LIVEKIT_URL` | URL LiveKit | `ws://localhost:7880` |
-| `LIVEKIT_EXTERNAL_IP` | IP externe LiveKit | `votre_ip` |
+| `UPLOADS_VOLUME` | **Chemin host** pour les uploads partages entre master et slave | `/var/www/bob/uploads` |
+| `STRAPI_VOLUME` | Chemin vers le projet Strapi (mode dev uniquement) | `/home/user/bob/strapi` |
+| `STRAPI_VERSION` | Tag de l'image Docker Strapi | `latest` |
+| `STRAPI_HOST` | IP de bind pour les ports exposes | `0.0.0.0` |
+| `REDIS_PASSWORD` | Mot de passe Redis (obligatoire, plus d'auto-generation) | `monMotDePasse123` |
+| `POSTGRES_VOLUME` | Chemin host pour les donnees PostgreSQL | `/var/www/bob/data/postgresql` |
+| `POSTGRES_USER` | Utilisateur PostgreSQL | `BoB` |
+| `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | `monMotDePasse` |
+| `POSTGRES_DB` | Nom de la base de donnees | `BoB` |
+| `LIVEKIT_EXTERNAL_IP` | IP externe du serveur LiveKit | `72.60.132.74` |
+| `LIVEKIT_API_KEY` | Cle API LiveKit | `livekit` |
+| `LIVEKIT_API_SECRET` | Secret API LiveKit (min 32 caracteres) | `sTDqA5LKNRM5...` |
+| `LIVEKIT_URL` | URL WebSocket LiveKit | `ws://72.60.132.74:7880` |
 
-#### Configuration de STRAPI_HOST (IP de bind)
+### 2. Configurer le .env de Strapi
 
-Cette variable controle sur quelle interface reseau Strapi est accessible :
+Le fichier `strapi/.env` doit contenir les credentials de connexion aux services :
 
-| Valeur | Usage | Acces |
-|--------|-------|-------|
-| `127.0.0.1` | **Local uniquement** (defaut) | Uniquement depuis la machine hote |
-| `0.0.0.0` | **Toutes interfaces** | Accessible depuis n'importe quelle IP |
-| `192.168.x.x` | **IP LAN specifique** | Pour dev mobile sur le meme reseau |
+```env
+# Les variables REDIS_* doivent correspondre a ce qui est dans docker/.env
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=<meme mot de passe que REDIS_PASSWORD dans docker/.env>
+REDIS_DB=0
 
-### 2. Preparer le dossier Strapi
-
-**Supprimer node_modules** (important pour eviter les conflits de compilation) :
-
-```bash
-rm -rf /Users/macbook/workspace/BOB/strapi/node_modules
-```
-
-> **Pourquoi ?** Les modules natifs (comme `better-sqlite3`) sont compiles differemment sur macOS et Linux. En supprimant `node_modules`, le conteneur recompilera tous les modules pour son environnement Debian.
-
-**Configurer le fichier .env de Strapi** :
-
-Assurez-vous que le fichier `${STRAPI_VOLUME}/.env` contient les lignes suivantes :
-
-```bash
-# ========== PostgreSQL Configuration ==========
+# Les variables DATABASE_* doivent correspondre a docker/.env
 DATABASE_CLIENT=postgres
 DATABASE_HOST=postgresql
 DATABASE_PORT=5432
-DATABASE_NAME=bob
-DATABASE_USERNAME=bob
-DATABASE_PASSWORD=votre_mot_de_passe
-
-# ========== Redis Configuration ==========
-REDIS_HOST=
-REDIS_PORT=
-REDIS_PASSWORD=
-REDIS_DB=
+DATABASE_NAME=BoB
+DATABASE_USERNAME=BoB
+DATABASE_PASSWORD=<meme mot de passe que POSTGRES_PASSWORD dans docker/.env>
 ```
 
-> **Note**: Les valeurs Redis seront automatiquement remplies par le conteneur Redis au demarrage.
+> **Important** : Le mot de passe Redis n'est plus auto-genere par le conteneur Redis. Il faut le definir manuellement dans `docker/.env` ET dans `strapi/.env`.
 
-### 3. Demarrer les services
+### 3. Preparer le volume d'uploads
+
+Si vous migrez depuis l'ancien setup (volume monte du projet complet), copiez les uploads existants vers le chemin dedie :
 
 ```bash
-cd /Users/macbook/workspace/BOB/docker
+# Creer le dossier d'uploads
+mkdir -p /chemin/vers/uploads
+
+# Copier les uploads existants
+cp -a /chemin/vers/strapi/public/uploads/* /chemin/vers/uploads/
+
+# Mettre UPLOADS_VOLUME dans docker/.env
+# UPLOADS_VOLUME=/chemin/vers/uploads
+```
+
+### 4. Installer la config Nginx
+
+Nginx tourne **sur le host** (pas dans Docker). Copiez la config :
+
+```bash
+# Copier la config du site
+sudo cp docker/nginx/bob.strapi-pro.com.conf /etc/nginx/conf.d/
+
+# Tester et recharger
+sudo nginx -t && sudo nginx -s reload
+```
+
+### 5. Premier demarrage
+
+```bash
+cd docker
+
+# Build l'image Strapi et demarrer les services
+docker compose build strapi-master
 docker compose up -d
 ```
 
-L'ordre de demarrage :
+L'ordre de demarrage automatique :
+1. **PostgreSQL** demarre → healthcheck `pg_isready`
+2. **Redis** demarre → healthcheck `redis-cli ping`
+3. **LiveKit** demarre
+4. **strapi-master** demarre une fois les dependances healthy → healthcheck `curl /_health`
 
-1. **PostgreSQL** demarre en premier
-2. PostgreSQL initialise le cluster et cree l'utilisateur/base
-3. **Redis** demarre
-4. Redis genere un mot de passe securise
-5. Redis met a jour le fichier `.env` de Strapi
-6. **LiveKit** demarre
-7. **Strapi** demarre une fois PostgreSQL et Redis healthy
-8. Strapi lit les credentials depuis son `.env`
+## Deploiement (zero-downtime)
 
-### 4. Verifier les logs
+### Workflow automatique
 
 ```bash
-# Tous les services
-docker compose logs -f
-
-# PostgreSQL uniquement
-docker compose logs -f postgresql
-
-# Redis uniquement
-docker compose logs -f redis
-
-# Strapi uniquement
-docker compose logs -f strapi
-
-# LiveKit uniquement
-docker compose logs -f livekit
+cd docker
+./deploy.sh
 ```
 
-## Fonctionnement detaille
+Le script execute automatiquement les 7 etapes :
 
-### Demarrage PostgreSQL
+```
+Etape 1/7 : Build de la nouvelle image Docker
+            (multi-stage : deps → build → production)
+                    │
+Etape 2/7 : Demarrage de strapi-slave avec la nouvelle image
+            (nginx l'a en backup, ne lui envoie rien)
+                    │
+Etape 3/7 : Attente du healthcheck de strapi-slave
+            (curl http://localhost:1337/_health toutes les 15s, max 180s)
+                    │
+           ECHEC ?──┤──→ Deploiement annule. Master inchange, rien ne casse.
+                    │
+Etape 4/7 : Arret de strapi-master
+            → Nginx detecte le fail et bascule AUTO sur slave (backup)
+                    │
+Etape 5/7 : Redemarrage de strapi-master avec la nouvelle image
+                    │
+Etape 6/7 : Attente du healthcheck de strapi-master
+                    │
+           ECHEC ?──┤──→ Slave continue de servir le trafic.
+                    │     Intervenir manuellement pour diagnostiquer.
+                    │
+Etape 7/7 : Arret de strapi-slave
+            → Master reprend le role principal
+                    │
+            DEPLOIEMENT TERMINE
+```
 
-Au premier demarrage, le script `/usr/local/bin/entrypoint.sh` :
-
-1. Verifie les variables d'environnement (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`)
-2. Initialise le cluster avec `initdb` et locale `fr_FR.UTF-8`
-3. Cree l'utilisateur et la base de donnees
-4. Applique la configuration securisee (SCRAM-SHA-256)
-5. Demarre PostgreSQL Server
-
-### Demarrage Redis
-
-Au premier demarrage, le script `/usr/local/bin/entrypoint.sh` :
-
-1. Genere un mot de passe : `REDIS_PASSWORD=$(openssl rand -base64 32)`
-2. Sauvegarde dans `/data/redis_password.txt`
-3. Met a jour `/app/bob/.env` (volume Strapi) avec `sed` :
-   ```bash
-   REDIS_HOST=redis
-   REDIS_PORT=6379
-   REDIS_PASSWORD=<mot_de_passe_genere>
-   REDIS_DB=0
-   ```
-4. Ajoute `requirepass` a la config Redis
-5. Demarre Redis Server
-
-### Demarrage Strapi
-
-Le script `/opt/runtime.sh` execute selon `NODE_ENV` :
-
-**Mode development** (`NODE_ENV=development`) :
+### Commandes du script
 
 ```bash
-cd /app/bob
-yarn install    # Installe les dependances
-yarn develop    # Demarre avec hot reload
+# Deploiement complet zero-downtime
+./deploy.sh
+
+# Voir l'etat des conteneurs
+./deploy.sh --status
+
+# Build l'image sans deployer (pour tester)
+./deploy.sh --build-only
+
+# Aide
+./deploy.sh --help
 ```
 
-**Mode production** (`NODE_ENV=production` ou non defini) :
+### Securite du deploiement
+
+| Etape d'echec | Impact | Action |
+|----------------|--------|--------|
+| Etape 3 (slave ne demarre pas) | **Aucun**. Master n'a pas ete touche. | Le slave defaillant est arrete. Investiguer les logs. |
+| Etape 6 (master ne redemarre pas) | **Degrade**. Slave sert le trafic. | Le trafic fonctionne via slave. Corriger et relancer master manuellement. |
+
+## Mode developpement
+
+Le mode dev utilise l'ancien setup avec volume mount du projet complet et hot-reload :
 
 ```bash
-cd /app/bob
-yarn install    # Installe les dependances
-yarn build      # Compile Strapi
-yarn start      # Demarre en production
+cd docker
+
+# Demarrer en mode dev (strapi-master ne demarre PAS, pas de conflit de port)
+docker compose --profile dev up -d strapi-dev
+
+# Voir les logs
+docker compose --profile dev logs -f strapi-dev
 ```
 
-### Healthchecks
+> **Note** : `strapi-dev` et `strapi-master` utilisent tous les deux le port 1337 sur le host. Ne les lancez pas en meme temps.
 
-**PostgreSQL** est considere "healthy" quand :
+Le mode dev :
+- Monte `${STRAPI_VOLUME}:/app/bob` (projet complet en volume)
+- Execute `runtime.sh` : `yarn install` → `yarn develop`
+- Les modifications de code sont visibles immediatement (hot-reload)
+
+## Dockerfile multi-stage (production)
+
+L'image de production est construite en 3 etapes pour minimiser la taille et maximiser le cache :
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Stage 1: deps                                           │
+│ node:20-bookworm-slim + build-essential + python3       │
+│ COPY package.json yarn.lock .yarnrc.yml                 │
+│ RUN yarn install                                        │
+│                                                         │
+│ → Couche cachee tant que les deps ne changent pas       │
+├─────────────────────────────────────────────────────────┤
+│ Stage 2: builder                                        │
+│ COPY config/ src/ database/ types/ tsconfig.json ...    │
+│ RUN yarn build                                          │
+│                                                         │
+│ → Compile TypeScript + build admin panel React           │
+├─────────────────────────────────────────────────────────┤
+│ Stage 3: production                                     │
+│ node:20-bookworm-slim (image propre, pas de build tools)│
+│ COPY --from=deps node_modules                           │
+│ COPY --from=builder dist/ config/ src/ ...              │
+│ CMD ["yarn", "start"]                                   │
+│                                                         │
+│ → Image finale legere, demarrage instantane             │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Difference avec l'ancien setup** : Plus de `yarn install` ni `yarn build` au demarrage. L'image contient tout. Le conteneur demarre en quelques secondes au lieu de plusieurs minutes.
+
+## Configuration Nginx
+
+Nginx tourne sur le host et utilise un upstream avec **failover automatique** :
+
+```nginx
+upstream strapi_backend {
+    server 127.0.0.1:1337 max_fails=3 fail_timeout=30s;          # master (principal)
+    server 127.0.0.1:1338 max_fails=3 fail_timeout=30s backup;   # slave (backup)
+}
+```
+
+- En temps normal : tout le trafic va sur le master (1337)
+- Si master est down : nginx bascule automatiquement sur slave (1338) apres 3 echecs
+- `proxy_next_upstream error timeout http_502 http_503` : nginx retente sur l'autre serveur en cas d'erreur
+- **Pas besoin de `nginx -s reload`** pendant le deploiement. Le failover est automatique.
+
+## Gestion des crons
+
+Strapi execute des taches cron (rappels pre/post pret). Pour eviter les doublons quand les deux instances tournent :
+
+- `strapi-master` : `CRON_ENABLED=true` (execute les crons)
+- `strapi-slave` : `CRON_ENABLED=false` (n'execute pas les crons)
+
+C'est configure dans `docker-compose.yml` et lu par `config/server.ts` :
+
+```typescript
+cron: {
+  enabled: env.bool('CRON_ENABLED', true),
+  tasks: cronTasks,
+},
+```
+
+## Gestion du mot de passe Redis
+
+**Ancien fonctionnement** : Le conteneur Redis generait un mot de passe aleatoire au demarrage et modifiait le fichier `.env` de Strapi via le volume partage.
+
+**Nouveau fonctionnement** : Le mot de passe est defini manuellement dans `docker/.env` (`REDIS_PASSWORD`) et dans `strapi/.env` (`REDIS_PASSWORD`). Le conteneur Redis exige cette variable et refuse de demarrer sans.
+
+Pour generer un mot de passe securise :
+
 ```bash
-pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+openssl rand -base64 32
 ```
-
-**Redis** est considere "healthy" quand :
-```bash
-redis-cli -a $(cat /data/redis_password.txt) ping
-```
-retourne `PONG`.
-
-## Acces aux services
-
-- **Strapi**: `http://${STRAPI_HOST}:1337` (par defaut `http://127.0.0.1:1337`)
-- **PostgreSQL**: Accessible uniquement depuis le reseau Docker interne `bob-network` (port 5432)
-- **Redis**: Accessible uniquement depuis le reseau Docker interne `bob-network` (port 6379)
-- **LiveKit**: `http://localhost:7880` (API), ports RTC exposes
 
 ## Commandes utiles
 
 ```bash
-# Arreter les services
-docker compose down
+# === Services ===
+docker compose up -d                                    # Demarrer (master + infra)
+docker compose --profile blue-green up -d strapi-slave  # Demarrer le slave
+docker compose --profile dev up -d strapi-dev           # Demarrer en mode dev
+docker compose down                                     # Arreter tout
+docker compose ps                                       # Etat des conteneurs
 
-# Reconstruire les images
-docker compose build --no-cache
+# === Logs ===
+docker compose logs -f strapi-master                    # Logs master
+docker compose logs -f strapi-slave                     # Logs slave
+docker compose logs -f postgresql                       # Logs PostgreSQL
+docker compose logs -f redis                            # Logs Redis
 
-# Redemarrer tout
-docker compose restart
+# === Shell ===
+docker compose exec strapi-master sh                    # Shell dans master
+docker compose exec postgresql psql -U BoB -d BoB      # CLI PostgreSQL
+docker compose exec redis redis-cli -a $REDIS_PASSWORD  # CLI Redis
 
-# Supprimer volumes (attention: perte de donnees)
-docker compose down -v
+# === Build ===
+docker compose build strapi-master                      # Rebuild l'image
+docker compose build --no-cache strapi-master            # Rebuild sans cache
 
-# Voir les conteneurs en cours
-docker compose ps
+# === Deploiement ===
+./deploy.sh                                             # Deploiement zero-downtime
+./deploy.sh --status                                    # Etat blue-green
+./deploy.sh --build-only                                # Build sans deployer
+```
 
-# Shell dans Strapi
-docker compose exec strapi bash
+## Troubleshooting
 
-# Shell dans PostgreSQL
-docker compose exec postgresql sh
+### strapi-master ne demarre pas
 
-# Shell dans Redis
-docker compose exec redis sh
+```bash
+# Verifier les logs
+docker compose logs strapi-master
 
-# psql CLI
-docker compose exec postgresql psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+# Verifier que l'image a ete buildee
+docker images bob-strapi
 
-# Redis CLI
-docker compose exec redis redis-cli -a $(docker compose exec redis cat /data/redis_password.txt)
+# Verifier le healthcheck
+docker inspect --format='{{.State.Health}}' strapi-master
+```
+
+Causes frequentes :
+- Le `.env` de Strapi manque des variables (DATABASE_*, REDIS_*, APP_KEYS, etc.)
+- L'image n'a pas ete buildee (`docker compose build strapi-master`)
+- Le volume d'uploads n'existe pas (`mkdir -p $UPLOADS_VOLUME`)
+
+### Le deploiement echoue a l'etape 3 (slave non healthy)
+
+Le slave n'arrive pas a demarrer. Master n'est pas impacte.
+
+```bash
+# Voir les logs du slave
+docker compose --profile blue-green logs strapi-slave
+
+# Verifier si c'est un probleme de migration DB
+docker compose --profile blue-green logs strapi-slave | grep -i migration
+```
+
+### Le deploiement echoue a l'etape 6 (master non healthy apres restart)
+
+Le slave sert le trafic en mode degrade.
+
+```bash
+# Voir les logs du master
+docker compose logs strapi-master
+
+# Relancer master manuellement
+docker compose up -d strapi-master
+
+# Si ca ne marche pas, le slave continue de servir
+./deploy.sh --status
+```
+
+### Les uploads ne s'affichent pas
+
+Verifier que le volume est correctement monte :
+
+```bash
+# Verifier le contenu du volume
+ls -la $UPLOADS_VOLUME
+
+# Verifier dans le conteneur
+docker compose exec strapi-master ls /app/bob/public/uploads/
+```
+
+### PostgreSQL ne demarre pas
+
+```bash
+docker compose logs postgresql
+ls -la $POSTGRES_VOLUME
+```
+
+### Redis refuse de demarrer
+
+Verifier que `REDIS_PASSWORD` est defini dans `docker/.env` :
+
+```bash
+grep REDIS_PASSWORD docker/.env
+docker compose logs redis
+```
+
+### Conflit de port 1337
+
+`strapi-master` et `strapi-dev` utilisent le meme port. Ne pas les lancer en meme temps :
+
+```bash
+# Arreter le dev avant de lancer la prod
+docker compose --profile dev stop strapi-dev
+docker compose up -d strapi-master
+
+# Ou inversement
+docker compose stop strapi-master
+docker compose --profile dev up -d strapi-dev
 ```
 
 ## Securite
 
 ### PostgreSQL
-
 - Authentification SCRAM-SHA-256
-- Port non expose a l'exterieur (reseau Docker interne uniquement)
-- Connexions limitees au reseau Docker
+- Port non expose a l'exterieur (reseau Docker interne)
+- Connexions limitees au reseau `bob-network`
 
 ### Redis
-
 - Mot de passe requis (`requirepass`)
-- Port non expose a l'exterieur (reseau Docker interne uniquement)
+- Port non expose a l'exterieur (reseau Docker interne)
 - Commandes dangereuses desactivees (`FLUSHDB`, `FLUSHALL`, `CONFIG`)
-- Limite memoire : 256MB avec politique LRU
-- Persistance AOF pour eviter la perte de donnees
+- Limite memoire : 256 Mo avec politique LRU
+- Persistance AOF
 
-## Troubleshooting
+### Images Docker Strapi
+- Les credentials Firebase et APNs sont COPY dans l'image au build
+- **Ne jamais push l'image sur un registry public**
+- Amelioration future : monter ces fichiers comme Docker secrets
 
-### Strapi ne peut pas se connecter a PostgreSQL
+## Migration depuis l'ancien setup
 
-Verifiez que :
+Si vous migrez depuis le setup avec un seul conteneur `strapi` et volume mount du projet :
 
-1. Le fichier `.env` de Strapi contient bien les variables `DATABASE_*`
-2. PostgreSQL est demarre et healthy : `docker compose ps`
-3. Les credentials sont corrects
-
-### Strapi ne peut pas se connecter a Redis
-
-Verifiez que :
-
-1. Le fichier `.env` de Strapi contient bien les variables `REDIS_*`
-2. Redis est demarre et healthy : `docker compose ps`
-3. Le mot de passe est correct : `grep REDIS_PASSWORD /path/to/strapi/.env`
-
-### PostgreSQL ne demarre pas
+### 1. Sauvegarde
 
 ```bash
-# Verifier les logs
-docker compose logs postgresql
+# Backup DB + config
+cd docker && ./strapi-data.sh
 
-# Verifier les permissions du volume
-ls -la ${POSTGRES_VOLUME}
+# Backup uploads
+tar -czf uploads-backup-$(date +%Y%m%d).tar.gz -C /chemin/vers/strapi/public uploads
+
+# Backup configs Docker
+cp docker-compose.yml docker-compose.yml.backup
+cp strapi/Dockerfile strapi/Dockerfile.backup
+cp .env .env.backup
 ```
 
-### Redis ne demarre pas
+### 2. Preparer le mot de passe Redis
+
+L'ancien setup generait le mot de passe automatiquement. Recuperez-le et mettez-le dans les `.env` :
 
 ```bash
-# Verifier les logs
-docker compose logs redis
+# Lire le mot de passe actuel
+docker compose exec redis cat /data/redis_password.txt
 
-# Verifier la config
-docker compose exec redis cat /tmp/redis.conf
+# Le mettre dans docker/.env
+# REDIS_PASSWORD=<le mot de passe recupere>
+
+# Verifier qu'il est aussi dans strapi/.env
+# REDIS_PASSWORD=<le meme mot de passe>
 ```
 
-### Reinitialiser PostgreSQL
+### 3. Preparer les uploads
 
 ```bash
-# Arreter les services
+mkdir -p /chemin/vers/uploads
+cp -a /chemin/vers/strapi/public/uploads/* /chemin/vers/uploads/
+# Mettre UPLOADS_VOLUME=/chemin/vers/uploads dans docker/.env
+```
+
+### 4. Deployer
+
+```bash
+# Arreter l'ancien setup
 docker compose down
 
-# Supprimer les donnees PostgreSQL
-rm -rf ${POSTGRES_VOLUME}/*
-
-# Redemarrer (le cluster sera reinitialise)
+# Build et demarrer le nouveau
+docker compose build strapi-master
 docker compose up -d
+
+# Verifier
+docker compose logs -f strapi-master
+curl http://localhost:1337/_health
 ```
 
-### Reinitialiser le mot de passe Redis
+### 5. Installer Nginx
 
 ```bash
-# Arreter les services
-docker compose down
-
-# Supprimer le volume Redis
-docker volume rm bob_redis-data
-
-# Redemarrer (un nouveau mot de passe sera genere)
-docker compose up -d
+sudo cp docker/nginx/bob.strapi-pro.com.conf /etc/nginx/conf.d/
+sudo nginx -t && sudo nginx -s reload
 ```
 
-### Strapi non accessible depuis un autre appareil
+### 6. Verifier
 
-Si Strapi n'est pas accessible depuis un appareil mobile ou une autre machine :
-
-1. Verifiez `STRAPI_HOST` dans `.env` Docker - doit etre `0.0.0.0` ou votre IP LAN
-2. Verifiez le pare-feu de votre machine
-3. Assurez-vous que les appareils sont sur le meme reseau
-4. Testez avec : `curl http://VOTRE_IP:1337/api`
+- [ ] `curl http://localhost:1337/_health` retourne 200
+- [ ] Admin panel accessible : `http://bob.strapi-pro.com/admin`
+- [ ] Les images existantes s'affichent
+- [ ] Un nouvel upload fonctionne
+- [ ] Les crons tournent (verifier les logs : `[CRON]`)
+- [ ] `./deploy.sh --status` affiche master RUNNING + HEALTHY

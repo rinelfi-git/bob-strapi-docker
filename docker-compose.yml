@@ -14,7 +14,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     restart: unless-stopped
     networks:
-      - bob-network
+      - bob
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -29,28 +29,106 @@ services:
     container_name: redis
     volumes:
       - ${REDIS_VOLUME}:/data
-      - ${STRAPI_VOLUME}:/app/bob
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     restart: unless-stopped
     networks:
-      - bob-network
+      - bob
     healthcheck:
-      test: ["CMD-SHELL", "test -f /data/redis_password.txt && redis-cli -a $(cat /data/redis_password.txt) ping || exit 1"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
 
-  strapi:
+  # ==========================================================================
+  # Blue-Green Strapi : strapi-master (instance principale, crons actifs)
+  # ==========================================================================
+  strapi-master:
+    build:
+      context: ${STRAPI_VOLUME}
+      dockerfile: ../docker/strapi/Dockerfile
+    image: bob-strapi:${STRAPI_VERSION:-latest}
+    container_name: strapi-master
+    ports:
+      - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
+    volumes:
+      - ${UPLOADS_VOLUME}:/app/bob/public/uploads
+    env_file:
+      - ${STRAPI_VOLUME}/.env
+    environment:
+      - NODE_ENV=production
+      - CRON_ENABLED=true
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - bob
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1337/_health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ==========================================================================
+  # Blue-Green Strapi : strapi-slave (instance standby, crons desactives)
+  # Demarre uniquement avec : docker compose --profile blue-green up strapi-slave
+  # ==========================================================================
+  strapi-slave:
+    build:
+      context: ${STRAPI_VOLUME}
+      dockerfile: ../docker/strapi/Dockerfile
+    image: bob-strapi:${STRAPI_VERSION:-latest}
+    container_name: strapi-slave
+    ports:
+      - "${STRAPI_HOST:-0.0.0.0}:1338:1337"
+    volumes:
+      - ${UPLOADS_VOLUME}:/app/bob/public/uploads
+    env_file:
+      - ${STRAPI_VOLUME}/.env
+    environment:
+      - NODE_ENV=production
+      - CRON_ENABLED=false
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - bob
+    profiles:
+      - blue-green
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1337/_health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ==========================================================================
+  # Mode developpement local (hot-reload avec volume mount)
+  # Demarre avec : docker compose --profile dev up strapi-dev
+  # ==========================================================================
+  strapi-dev:
     build:
       context: ./strapi
-      dockerfile: Dockerfile
-    container_name: strapi
+      dockerfile: Dockerfile.dev
+    container_name: strapi-dev
     ports:
       - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
     environment:
-      - NODE_ENV=${NODE_ENV}
+      - NODE_ENV=development
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - LIVEKIT_URL=${LIVEKIT_URL}
@@ -63,7 +141,9 @@ services:
         condition: service_started
     restart: unless-stopped
     networks:
-      - bob-network
+      - bob
+    profiles:
+      - dev
 
   livekit:
     image: livekit/livekit-server:latest
@@ -75,14 +155,13 @@ services:
       - "7881:7881/tcp"                   # RTC over TCP
       - "3478:3478/udp"                   # TURN UDP
       - "3478:3478/tcp"                   # TURN TCP (fallback)
-      - "50000-50200:50000-50200/udp"     # RTC over UDP (200 ports for 50 participants)
+      - "50000-50200:50000-50200/udp"     # RTC over UDP (200 ports pour 50 participants)
     volumes:
       - ./livekit/livekit.yaml:/livekit.yaml
     command: --config /livekit.yaml --node-ip ${LIVEKIT_EXTERNAL_IP}
     networks:
-      - bob-network
+      - bob
 
 networks:
-  bob-network:
+  bob:
     driver: bridge
-

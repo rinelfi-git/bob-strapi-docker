@@ -1,0 +1,29 @@
+# =============================================================================
+# Dockerfile de developpement pour Strapi
+#
+# Utilise avec le profil "dev" dans docker-compose.yml
+# Le projet entier est monte en volume pour le hot-reload
+#
+# Usage : docker compose --profile dev up strapi-dev
+# =============================================================================
+FROM node:20-bookworm-slim
+
+# Installer les dependances de build et outils necessaires
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3 \
+    msmtp \
+    git \
+    ca-certificates \
+    && ln -sf /usr/bin/msmtp /usr/sbin/sendmail \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Activer yarn via corepack
+RUN corepack enable && corepack prepare yarn@stable --activate
+
+WORKDIR /app/bob
+
+EXPOSE 1337
+
+CMD ["yarn", "develop"]
