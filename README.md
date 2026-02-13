@@ -37,7 +37,7 @@ L'infrastructure Docker de BOB utilise un **deploiement blue-green** pour Strapi
         │ :5432      │        │   :6379   │        │   :7880     │
         └───────────┘        └───────────┘        └─────────────┘
 
-                         Reseau Docker : bob-network
+                         Reseau Docker : bob
 ```
 
 ### Comment ca marche
@@ -55,7 +55,7 @@ L'infrastructure Docker de BOB utilise un **deploiement blue-green** pour Strapi
 |---------|-------|-----------|-------------|
 | `strapi-master` | `bob-strapi:latest` | 1337 | Instance Strapi principale (crons actifs) |
 | `strapi-slave` | `bob-strapi:latest` | 1338 | Instance Strapi backup (crons desactives). Profil: `blue-green` |
-| `strapi-dev` | Dockerfile.dev | 1337 | Mode developpement avec hot-reload. Profil: `dev` |
+| `strapi-xp` | Dockerfile.xp | 1337 | Mode developpement avec hot-reload. Profil: `xp` |
 | `postgresql` | postgres:16-alpine | 5432 (interne) | Base de donnees |
 | `redis` | redis:7-alpine | 6379 (interne) | Cache et files d'attente (Bull) |
 | `livekit` | livekit-server:latest | 7880, 7881, 3478, 50000-50200 | Serveur WebRTC |
@@ -72,7 +72,7 @@ docker/
 ├── strapi-data.sh                # Script de backup/restore
 ├── strapi/
 │   ├── Dockerfile                # Multi-stage build pour la production
-│   └── Dockerfile.dev            # Image dev (volume mount + yarn develop)
+│   └── Dockerfile.xp             # Image xp (volume mount + yarn develop)
 ├── postgresql/
 │   ├── Dockerfile                # PostgreSQL 16 Alpine + locales fr_FR
 │   ├── postgresql.conf           # Configuration PostgreSQL
@@ -250,17 +250,17 @@ Le mode dev utilise l'ancien setup avec volume mount du projet complet et hot-re
 cd docker
 
 # Demarrer en mode dev (strapi-master ne demarre PAS, pas de conflit de port)
-docker compose --profile dev up -d strapi-dev
+docker compose --profile xp up -d strapi-xp
 
 # Voir les logs
-docker compose --profile dev logs -f strapi-dev
+docker compose --profile xp logs -f strapi-xp
 ```
 
-> **Note** : `strapi-dev` et `strapi-master` utilisent tous les deux le port 1337 sur le host. Ne les lancez pas en meme temps.
+> **Note** : `strapi-xp` et `strapi-master` utilisent tous les deux le port 1337 sur le host. Ne les lancez pas en meme temps.
 
 Le mode dev :
 - Monte `${STRAPI_VOLUME}:/app/bob` (projet complet en volume)
-- Execute `runtime.sh` : `yarn install` → `yarn develop`
+- Execute `yarn develop` (hot-reload)
 - Les modifications de code sont visibles immediatement (hot-reload)
 
 ## Dockerfile multi-stage (production)
@@ -344,7 +344,7 @@ openssl rand -base64 32
 # === Services ===
 docker compose up -d                                    # Demarrer (master + infra)
 docker compose --profile blue-green up -d strapi-slave  # Demarrer le slave
-docker compose --profile dev up -d strapi-dev           # Demarrer en mode dev
+docker compose --profile xp up -d strapi-xp           	# Demarrer en mode dev
 docker compose down                                     # Arreter tout
 docker compose ps                                       # Etat des conteneurs
 
@@ -446,16 +446,16 @@ docker compose logs redis
 
 ### Conflit de port 1337
 
-`strapi-master` et `strapi-dev` utilisent le meme port. Ne pas les lancer en meme temps :
+`strapi-master` et `strapi-xp` utilisent le meme port. Ne pas les lancer en meme temps :
 
 ```bash
 # Arreter le dev avant de lancer la prod
-docker compose --profile dev stop strapi-dev
+docker compose --profile xp stop strapi-xp
 docker compose up -d strapi-master
 
 # Ou inversement
 docker compose stop strapi-master
-docker compose --profile dev up -d strapi-dev
+docker compose --profile xp up -d strapi-xp
 ```
 
 ## Securite
@@ -463,7 +463,7 @@ docker compose --profile dev up -d strapi-dev
 ### PostgreSQL
 - Authentification SCRAM-SHA-256
 - Port non expose a l'exterieur (reseau Docker interne)
-- Connexions limitees au reseau `bob-network`
+- Connexions limitees au reseau `bob`
 
 ### Redis
 - Mot de passe requis (`requirepass`)

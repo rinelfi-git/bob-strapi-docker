@@ -8,7 +8,7 @@
 # ============================================
 # Stage 1: Dependencies
 # ============================================
-FROM node:20-bookworm-slim AS deps
+FROM node:20-bookworm-slim AS dependency
 
 # Installer les outils de build pour les modules natifs (bcrypt, sharp, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -33,7 +33,7 @@ RUN yarn install
 # ============================================
 # Stage 2: Builder
 # ============================================
-FROM deps AS builder
+FROM dependency AS builder
 
 WORKDIR /app/bob
 
@@ -71,10 +71,10 @@ RUN corepack enable && corepack prepare yarn@stable --activate
 WORKDIR /app/bob
 
 # Copier les dependances installees depuis le stage deps
-COPY --from=deps /app/bob/node_modules ./node_modules
-COPY --from=deps /app/bob/package.json ./package.json
-COPY --from=deps /app/bob/yarn.lock ./yarn.lock
-COPY --from=deps /app/bob/.yarnrc.yml ./.yarnrc.yml
+COPY --from=dependency /app/bob/node_modules ./node_modules
+COPY --from=dependency /app/bob/package.json ./package.json
+COPY --from=dependency /app/bob/yarn.lock ./yarn.lock
+COPY --from=dependency /app/bob/.yarnrc.yml ./.yarnrc.yml
 
 # Copier l'application buildee depuis le stage builder
 COPY --from=builder /app/bob/dist ./dist
