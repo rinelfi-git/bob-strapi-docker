@@ -50,8 +50,6 @@ services:
       dockerfile: ../docker/strapi/Dockerfile
     image: bob-strapi:${STRAPI_VERSION:-latest}
     container_name: strapi-master
-    ports:
-      - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
     volumes:
       - ${UPLOADS_VOLUME}:/app/bob/public/uploads
     env_file:
@@ -86,8 +84,6 @@ services:
       dockerfile: ../docker/strapi/Dockerfile
     image: bob-strapi:${STRAPI_VERSION:-latest}
     container_name: strapi-slave
-    ports:
-      - "${STRAPI_HOST:-0.0.0.0}:1338:1337"
     volumes:
       - ${UPLOADS_VOLUME}:/app/bob/public/uploads
     env_file:
@@ -121,10 +117,10 @@ services:
   strapi-xp:
     build:
       context: ./strapi
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile.xp
     container_name: strapi-xp
     ports:
-      - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
+      - "1337:1337"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
     environment:
@@ -144,6 +140,24 @@ services:
       - bob
     profiles:
       - xp
+
+  # ==========================================================================
+  # Nginx reverse proxy (point d'entree unique vers Strapi)
+  # Accessible sur le port 8080 de l'hote
+  # ==========================================================================
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: bob-nginx
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    depends_on:
+      strapi-master:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - bob
 
   livekit:
     image: livekit/livekit-server:latest
