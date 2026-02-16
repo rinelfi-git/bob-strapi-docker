@@ -56,7 +56,7 @@ services:
       - ${STRAPI_VOLUME}/.env
     environment:
       - NODE_ENV=production
-      - SERVER_URL=http://localhost:${NGINX_PORT:-8080}
+      - SERVER_URL=${PRODUCTION_HOST}
       - CRON_ENABLED=true
     depends_on:
       postgresql:
@@ -91,7 +91,7 @@ services:
       - ${STRAPI_VOLUME}/.env
     environment:
       - NODE_ENV=production
-      - SERVER_URL=http://localhost:${NGINX_PORT:-8080}
+      - SERVER_URL=${PRODUCTION_HOST}
       - CRON_ENABLED=false
     depends_on:
       postgresql:
