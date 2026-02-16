@@ -4,7 +4,7 @@
 # Utilise avec le profil "dev" dans docker-compose.yml
 # Le projet entier est monte en volume pour le hot-reload
 #
-# Usage : docker compose --profile dev up strapi-dev
+# Usage : docker compose --profile xp up strapi-xp
 # =============================================================================
 FROM node:20-bookworm-slim
 
@@ -24,6 +24,10 @@ RUN corepack enable && corepack prepare yarn@stable --activate
 
 WORKDIR /app/bob
 
+COPY entrypoint-xp.sh /usr/local/bin/entrypoint-xp.sh
+RUN chmod +x /usr/local/bin/entrypoint-xp.sh
+
 EXPOSE 1337
 
+ENTRYPOINT ["entrypoint-xp.sh"]
 CMD ["yarn", "develop"]
