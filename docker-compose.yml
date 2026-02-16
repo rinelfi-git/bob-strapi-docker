@@ -116,13 +116,13 @@ services:
 
   # ==========================================================================
   # Mode developpement local (hot-reload avec volume mount)
-  # Demarre avec : docker compose --profile dev up strapi-dev
+  # Demarre avec : docker compose --profile xp up strapi-xp
   # ==========================================================================
-  strapi-dev:
+  strapi-xp:
     build:
       context: ./strapi
       dockerfile: Dockerfile.dev
-    container_name: strapi-dev
+    container_name: strapi-xp
     ports:
       - "${STRAPI_HOST:-0.0.0.0}:1337:1337"
     volumes:
