@@ -123,6 +123,7 @@ services:
       - "1337:1337"
     volumes:
       - ${STRAPI_VOLUME}:/app/bob
+      - ${UPLOADS_VOLUME}:/app/bob/public/uploads
     environment:
       - NODE_ENV=development
       - SERVER_URL=http://localhost:1337
