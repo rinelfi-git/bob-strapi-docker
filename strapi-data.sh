@@ -133,9 +133,9 @@ do_restore() {
     log_info "Restauration des uploads..."
 
     if docker compose exec -T strapi-master test -f /tmp/restore/uploads.tar.gz; then
-        docker compose exec -T strapi-master rm -rf /app/bob/public/uploads
-        docker compose exec -T strapi-master mkdir -p /app/bob/public
-        docker compose exec -T strapi-master tar -xzf /tmp/restore/uploads.tar.gz -C /app/bob/public
+        # Vider le contenu du volume uploads (sans supprimer le point de montage)
+        docker compose exec -T strapi-master sh -c 'rm -rf /app/bob/public/uploads/*'
+        docker compose exec -T strapi-master tar -xzf /tmp/restore/uploads.tar.gz --strip-components=1 -C /app/bob/public/uploads
         log_success "Uploads restaurés"
     else
         log_warning "Fichier uploads.tar.gz non trouvé dans l'archive"
