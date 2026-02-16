@@ -7,57 +7,69 @@ L'infrastructure Docker de BOB utilise un **deploiement blue-green** pour Strapi
 ## Architecture
 
 ```
-                         ┌──────────────────────┐
-                         │    Nginx (host)       │
-                         │    :80 / :443         │
-                         └──────────┬────────────┘
-                                    │
-                          upstream strapi_backend
-                       ┌────────────┴────────────┐
-                       │                         │
-                  :1337 (principal)         :1338 (backup)
-              ┌────────┴────────┐     ┌──────────┴──────────┐
-              │  strapi-master  │     │   strapi-slave       │
-              │  CRON_ENABLED=  │     │   CRON_ENABLED=      │
-              │  true           │     │   false               │
-              └────────┬────────┘     └──────────┬───────────┘
-                       │                         │
-                       └────────────┬────────────┘
-                                    │
-                    ┌───────────────┴───────────────┐
-                    │   Volume partage (uploads)    │
-                    │   ${UPLOADS_VOLUME} →          │
-                    │   /app/bob/public/uploads      │
-                    └───────────────────────────────┘
-                                    │
-              ┌─────────────────────┼─────────────────────┐
-              │                     │                     │
-        ┌─────┴─────┐        ┌─────┴─────┐        ┌──────┴──────┐
-        │ PostgreSQL │        │   Redis   │        │   LiveKit   │
-        │ :5432      │        │   :6379   │        │   :7880     │
-        └───────────┘        └───────────┘        └─────────────┘
+                    ┌──────────────────────────┐
+                    │   Nginx externe (host)   │
+                    │   :80 / :443 (TLS)       │
+                    └────────────┬─────────────┘
+                                 │
+                          localhost:8080
+                                 │
+                    ┌────────────┴─────────────┐
+                    │   Nginx (conteneur)      │
+                    │   bob-nginx :80           │
+                    │   resolver 127.0.0.11    │
+                    └────────────┬─────────────┘
+                                 │
+                    location /   │   @slave_fallback
+                    (principal)  │   (error_page 502/503/504)
+                       ┌────────┴────────┐
+                       │                 │
+              ┌────────┴────────┐  ┌─────┴───────────┐
+              │  strapi-master  │  │  strapi-slave    │
+              │  :1337 interne  │  │  :1337 interne   │
+              │  CRON=true      │  │  CRON=false      │
+              └────────┬────────┘  └─────┬────────────┘
+                       │                 │
+                       └────────┬────────┘
+                                │
+                 ┌──────────────┴──────────────┐
+                 │  Volume partage (uploads)   │
+                 │  ${UPLOADS_VOLUME} →         │
+                 │  /app/bob/public/uploads     │
+                 └─────────────────────────────┘
+                                │
+           ┌────────────────────┼────────────────────┐
+           │                    │                    │
+     ┌─────┴─────┐       ┌─────┴─────┐       ┌─────┴───────┐
+     │ PostgreSQL │       │   Redis   │       │   LiveKit   │
+     │ :5432      │       │   :6379   │       │   :7880     │
+     └───────────┘       └───────────┘       └─────────────┘
 
-                         Reseau Docker : bob
+                      Reseau Docker : bob
 ```
 
 ### Comment ca marche
 
-- **strapi-master** (port 1337) est le serveur **principal** dans Nginx
-- **strapi-slave** (port 1338) est le serveur **backup** dans Nginx
+- **Nginx (conteneur `bob-nginx`)** ecoute sur le port 8080 de l'hote et route vers Strapi en interne
+- **strapi-master** (port 1337 interne) est le serveur **principal**
+- **strapi-slave** (port 1337 interne) est le **fallback** via `error_page 502/503/504 = @slave_fallback`
+- Les noms de conteneurs sont resolus **dynamiquement** via le resolver Docker (`127.0.0.11`)
 - En temps normal, seul `strapi-master` tourne. `strapi-slave` est eteint
 - Pendant un deploiement, `strapi-slave` prend temporairement le relais
-- Nginx bascule **automatiquement** via `proxy_next_upstream` (pas besoin de recharger la config)
+- Nginx bascule **automatiquement** (pas besoin de recharger la config)
 - Seul `strapi-master` execute les **crons** (rappels pre/post pret)
+- Le **Nginx externe** (sur l'hote) gere le TLS et forward vers `localhost:8080`
 
 ## Services
 
 | Service | Image | Port host | Description |
 |---------|-------|-----------|-------------|
-| `strapi-master` | `bob-strapi:latest` | 1337 | Instance Strapi principale (crons actifs) |
-| `strapi-slave` | `bob-strapi:latest` | 1338 | Instance Strapi backup (crons desactives). Profil: `blue-green` |
+| `nginx` | nginx:alpine | 8080 | Reverse proxy, point d'entree unique vers Strapi |
+| `strapi-master` | `bob-strapi:latest` | aucun (interne) | Instance Strapi principale (crons actifs) |
+| `strapi-slave` | `bob-strapi:latest` | aucun (interne) | Instance Strapi fallback (crons desactives). Profil: `blue-green` |
 | `strapi-xp` | Dockerfile.xp | 1337 | Mode developpement avec hot-reload. Profil: `xp` |
-| `postgresql` | postgres:16-alpine | 5432 (interne) | Base de donnees |
-| `redis` | redis:7-alpine | 6379 (interne) | Cache et files d'attente (Bull) |
+| `postgresql` | postgres:16-alpine | aucun (interne) | Base de donnees |
+| `redis` | redis:7-alpine | aucun (interne) | Cache et files d'attente (Bull) |
 | `livekit` | livekit-server:latest | 7880, 7881, 3478, 50000-50200 | Serveur WebRTC |
 
 ## Structure des fichiers
@@ -83,7 +95,8 @@ docker/
 │   ├── redis.conf                # Configuration Redis securisee
 │   └── entrypoint.sh             # Demarrage avec mot de passe
 ├── nginx/
-│   └── bob.strapi-pro.com.conf   # Config Nginx avec upstream blue-green
+│   ├── Dockerfile                # Nginx Alpine + copie de la config
+│   └── bob.strapi-pro.com.conf   # Config Nginx avec failover blue-green
 └── livekit/
     └── livekit.yaml              # Configuration LiveKit
 ```
@@ -104,7 +117,7 @@ Editez `.env` avec vos valeurs :
 | `UPLOADS_VOLUME` | **Chemin host** pour les uploads partages entre master et slave | `/var/www/bob/uploads` |
 | `STRAPI_VOLUME` | Chemin vers le projet Strapi (mode dev uniquement) | `/home/user/bob/strapi` |
 | `STRAPI_VERSION` | Tag de l'image Docker Strapi | `latest` |
-| `STRAPI_HOST` | IP de bind pour les ports exposes | `0.0.0.0` |
+| `NGINX_PORT` | Port expose pour le reverse proxy Nginx | `8080` |
 | `REDIS_PASSWORD` | Mot de passe Redis (obligatoire, plus d'auto-generation) | `monMotDePasse123` |
 | `POSTGRES_VOLUME` | Chemin host pour les donnees PostgreSQL | `/var/www/bob/data/postgresql` |
 | `POSTGRES_USER` | Utilisateur PostgreSQL | `BoB` |
@@ -152,25 +165,13 @@ cp -a /chemin/vers/strapi/public/uploads/* /chemin/vers/uploads/
 # UPLOADS_VOLUME=/chemin/vers/uploads
 ```
 
-### 4. Installer la config Nginx
-
-Nginx tourne **sur le host** (pas dans Docker). Copiez la config :
-
-```bash
-# Copier la config du site
-sudo cp docker/nginx/bob.strapi-pro.com.conf /etc/nginx/conf.d/
-
-# Tester et recharger
-sudo nginx -t && sudo nginx -s reload
-```
-
-### 5. Premier demarrage
+### 4. Premier demarrage
 
 ```bash
 cd docker
 
 # Build l'image Strapi et demarrer les services
-docker compose build strapi-master
+docker compose build
 docker compose up -d
 ```
 
@@ -179,6 +180,7 @@ L'ordre de demarrage automatique :
 2. **Redis** demarre → healthcheck `redis-cli ping`
 3. **LiveKit** demarre
 4. **strapi-master** demarre une fois les dependances healthy → healthcheck `curl /_health`
+5. **Nginx** demarre une fois strapi-master healthy → accessible sur `localhost:8080`
 
 ## Deploiement (zero-downtime)
 
@@ -199,7 +201,7 @@ Etape 2/7 : Demarrage de strapi-slave avec la nouvelle image
             (nginx l'a en backup, ne lui envoie rien)
                     │
 Etape 3/7 : Attente du healthcheck de strapi-slave
-            (curl http://localhost:1337/_health toutes les 15s, max 180s)
+            (curl http://localhost:8080/_health toutes les 15s, max 180s)
                     │
            ECHEC ?──┤──→ Deploiement annule. Master inchange, rien ne casse.
                     │
@@ -256,7 +258,7 @@ docker compose --profile xp up -d strapi-xp
 docker compose --profile xp logs -f strapi-xp
 ```
 
-> **Note** : `strapi-xp` et `strapi-master` utilisent tous les deux le port 1337 sur le host. Ne les lancez pas en meme temps.
+> **Note** : En mode dev, Strapi est accessible directement sur `localhost:1337` (pas via Nginx).
 
 Le mode dev :
 - Monte `${STRAPI_VOLUME}:/app/bob` (projet complet en volume)
@@ -296,19 +298,31 @@ L'image de production est construite en 3 etapes pour minimiser la taille et max
 
 ## Configuration Nginx
 
-Nginx tourne sur le host et utilise un upstream avec **failover automatique** :
+Nginx tourne dans un **conteneur Docker** (`bob-nginx`) et sert de point d'entree unique vers Strapi. Le Nginx externe (sur l'hote) gere le TLS et forward vers `localhost:8080`.
 
 ```nginx
-upstream strapi_backend {
-    server 127.0.0.1:1337 max_fails=3 fail_timeout=30s;          # master (principal)
-    server 127.0.0.1:1338 max_fails=3 fail_timeout=30s backup;   # slave (backup)
+server {
+    resolver 127.0.0.11 valid=10s ipv6=off;  # DNS Docker interne
+
+    location / {
+        set $master strapi-master:1337;
+        proxy_pass http://$master;
+        error_page 502 503 504 = @slave_fallback;
+    }
+
+    location @slave_fallback {
+        set $slave strapi-slave:1337;
+        proxy_pass http://$slave;
+    }
 }
 ```
 
-- En temps normal : tout le trafic va sur le master (1337)
-- Si master est down : nginx bascule automatiquement sur slave (1338) apres 3 echecs
-- `proxy_next_upstream error timeout http_502 http_503` : nginx retente sur l'autre serveur en cas d'erreur
-- **Pas besoin de `nginx -s reload`** pendant le deploiement. Le failover est automatique.
+- En temps normal : tout le trafic va sur `strapi-master`
+- Si master est down : `error_page` redirige vers `@slave_fallback` (strapi-slave)
+- Les noms de conteneurs sont resolus **dynamiquement** via `set $variable` + `resolver`
+- Nginx demarre meme si `strapi-slave` n'existe pas encore
+- **Pas besoin de `nginx -s reload`** pendant le deploiement. Le failover est automatique
+- Apres modification de la config : `docker compose build nginx && docker compose up -d nginx`
 
 ## Gestion des crons
 
@@ -356,11 +370,12 @@ docker compose logs -f redis                            # Logs Redis
 
 # === Shell ===
 docker compose exec strapi-master sh                    # Shell dans master
-docker compose exec postgresql psql -U BoB -d BoB      # CLI PostgreSQL
+docker compose exec postgresql psql -U $POSTGRES_USER -d $POSTGRES_DB  # CLI PostgreSQL
 docker compose exec redis redis-cli -a $REDIS_PASSWORD  # CLI Redis
 
 # === Build ===
-docker compose build strapi-master                      # Rebuild l'image
+docker compose build strapi-master                      # Rebuild l'image Strapi
+docker compose build nginx                              # Rebuild l'image Nginx
 docker compose build --no-cache strapi-master            # Rebuild sans cache
 
 # === Deploiement ===
@@ -444,17 +459,17 @@ grep REDIS_PASSWORD docker/.env
 docker compose logs redis
 ```
 
-### Conflit de port 1337
+### Conflit de port 1337 (mode dev)
 
-`strapi-master` et `strapi-xp` utilisent le meme port. Ne pas les lancer en meme temps :
+`strapi-xp` expose le port 1337 sur l'hote pour le dev. `strapi-master` n'expose plus de port (il passe par Nginx sur 8080). Pas de conflit en temps normal, mais ne lancez pas les deux profils simultanement :
 
 ```bash
 # Arreter le dev avant de lancer la prod
 docker compose --profile xp stop strapi-xp
-docker compose up -d strapi-master
+docker compose up -d
 
 # Ou inversement
-docker compose stop strapi-master
+docker compose stop strapi-master nginx
 docker compose --profile xp up -d strapi-xp
 ```
 
@@ -531,19 +546,12 @@ docker compose up -d
 
 # Verifier
 docker compose logs -f strapi-master
-curl http://localhost:1337/_health
+curl http://localhost:8080/_health
 ```
 
-### 5. Installer Nginx
+### 5. Verifier
 
-```bash
-sudo cp docker/nginx/bob.strapi-pro.com.conf /etc/nginx/conf.d/
-sudo nginx -t && sudo nginx -s reload
-```
-
-### 6. Verifier
-
-- [ ] `curl http://localhost:1337/_health` retourne 200
+- [ ] `curl http://localhost:8080/_health` retourne 200
 - [ ] Admin panel accessible : `http://bob.strapi-pro.com/admin`
 - [ ] Les images existantes s'affichent
 - [ ] Un nouvel upload fonctionne

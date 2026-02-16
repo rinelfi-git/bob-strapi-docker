@@ -4,16 +4,17 @@ set -euo pipefail
 # =============================================================================
 # Script de deploiement Blue-Green pour Bob Strapi
 #
-# Nginx est configure avec un upstream a 2 serveurs :
-#   - master (port 1337) = serveur principal
-#   - slave  (port 1338) = serveur backup
-# Le failover est automatique via proxy_next_upstream.
+# Nginx tourne dans un conteneur Docker et route le trafic via :
+#   - strapi-master (port 1337 interne) = serveur principal
+#   - strapi-slave  (port 1337 interne) = serveur fallback (via error_page)
+# Le failover est automatique via error_page 502/503/504 -> @slave_fallback.
+# Les noms de conteneurs sont resolus dynamiquement (resolver Docker 127.0.0.11).
 #
 # Workflow de deploiement :
 #   1. Build la nouvelle image
 #   2. Demarrer slave avec la nouvelle image
 #   3. Attendre que slave soit healthy
-#   4. Stopper master -> nginx bascule auto sur slave
+#   4. Stopper master -> nginx bascule auto sur slave (error_page fallback)
 #   5. Redemarrer master avec la nouvelle image
 #   6. Attendre que master soit healthy -> nginx remet master en principal
 #   7. Stopper slave
@@ -99,28 +100,35 @@ show_status() {
     # Master
     if is_running "strapi-master"; then
         if is_healthy "strapi-master"; then
-            log_success "strapi-master (port 1337) : RUNNING + HEALTHY"
+            log_success "strapi-master : RUNNING + HEALTHY"
         else
-            log_warning "strapi-master (port 1337) : RUNNING (not healthy yet)"
+            log_warning "strapi-master : RUNNING (not healthy yet)"
         fi
     else
-        log_info "strapi-master (port 1337) : STOPPED"
+        log_info "strapi-master : STOPPED"
     fi
 
     # Slave
     if is_running "strapi-slave"; then
         if is_healthy "strapi-slave"; then
-            log_success "strapi-slave  (port 1338) : RUNNING + HEALTHY"
+            log_success "strapi-slave  : RUNNING + HEALTHY"
         else
-            log_warning "strapi-slave  (port 1338) : RUNNING (not healthy yet)"
+            log_warning "strapi-slave  : RUNNING (not healthy yet)"
         fi
     else
-        log_info "strapi-slave  (port 1338) : STOPPED"
+        log_info "strapi-slave  : STOPPED"
+    fi
+
+    # Nginx
+    if is_running "bob-nginx"; then
+        log_success "nginx         : RUNNING"
+    else
+        log_warning "nginx         : STOPPED"
     fi
 
     echo ""
-    log_info "Nginx upstream : master = principal, slave = backup"
-    log_info "Le failover est automatique si le principal est down."
+    log_info "Nginx (conteneur bob-nginx) : master = principal, slave = fallback"
+    log_info "Le failover est automatique via error_page si le principal est down."
     echo ""
 
     log_info "Tous les conteneurs :"
@@ -148,8 +156,8 @@ build_image() {
 # =============================================================================
 # Deploiement principal (zero-downtime)
 #
-# Le principe : nginx a master comme principal et slave comme backup.
-# On utilise slave comme relais temporaire pendant la mise a jour de master.
+# Le principe : nginx route vers master en principal. Si master est down,
+# error_page redirige vers @slave_fallback (resolution dynamique).
 # =============================================================================
 deploy() {
     echo ""
@@ -185,7 +193,7 @@ deploy() {
     fi
     echo ""
 
-    # Etape 4 : Stopper master -> nginx bascule automatiquement sur slave (backup)
+    # Etape 4 : Stopper master -> nginx bascule automatiquement sur slave (error_page fallback)
     log_info "Etape 4/7 : Arret de strapi-master (nginx bascule auto sur slave)..."
     docker compose -f "$COMPOSE_FILE" stop strapi-master
     docker compose -f "$COMPOSE_FILE" rm -f strapi-master
