@@ -74,19 +74,25 @@ wait_for_healthy() {
         status=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo "not_found")
 
         if [ "$status" = "healthy" ]; then
-            log_success "$container est healthy !"
+            printf "\r\033[K"
+            log_success "$container est healthy ! (en ${elapsed}s)"
             return 0
         elif [ "$status" = "not_found" ]; then
+            printf "\r\033[K"
             log_error "Conteneur $container introuvable"
             return 1
         fi
 
+        local remaining=$((max_wait - elapsed))
+        local mins=$((remaining / 60))
+        local secs=$((remaining % 60))
+        printf "\r\033[K  ⏳ %s : %s — temps restant : %02d:%02d" "$container" "$status" "$mins" "$secs"
+
         sleep 5
         elapsed=$((elapsed + 5))
-        printf "."
     done
 
-    echo ""
+    printf "\r\033[K"
     log_error "$container n'est pas devenu healthy en ${max_wait}s"
     return 1
 }
