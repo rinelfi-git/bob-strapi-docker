@@ -219,7 +219,7 @@ deploy() {
 
     # Etape 3 : Attendre que slave soit healthy
     log_info "Etape 3/7 : Attente du healthcheck de strapi-slave..."
-    if ! wait_for_healthy "strapi-slave" 180; then
+    if ! wait_for_healthy "strapi-slave" 300; then
         log_error "strapi-slave n'a pas demarre correctement. Deploiement annule."
         log_warning "strapi-master continue de servir le trafic (inchange)."
         echo ""
