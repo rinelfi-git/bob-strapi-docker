@@ -5,7 +5,7 @@ services:
     build:
       context: ./postgresql
       dockerfile: Dockerfile
-    container_name: postgresql
+    container_name: bpostgresql
     volumes:
       - ${POSTGRES_VOLUME}:/var/lib/postgresql/data
     environment:
@@ -26,7 +26,7 @@ services:
     build:
       context: ./redis
       dockerfile: Dockerfile
-    container_name: redis
+    container_name: bredis
     volumes:
       - ${REDIS_VOLUME}:/data
     environment:
@@ -49,7 +49,7 @@ services:
       context: ${STRAPI_VOLUME}
       dockerfile: ../docker/strapi/Dockerfile
     image: bob-strapi:${STRAPI_VERSION:-latest}
-    container_name: strapi-master
+    container_name: bstrapi-master
     volumes:
       - ${UPLOADS_VOLUME}:/app/bob/public/uploads
     env_file:
@@ -84,7 +84,7 @@ services:
       context: ${STRAPI_VOLUME}
       dockerfile: ../docker/strapi/Dockerfile
     image: bob-strapi:${STRAPI_VERSION:-latest}
-    container_name: strapi-slave
+    container_name: bstrapi-slave
     volumes:
       - ${UPLOADS_VOLUME}:/app/bob/public/uploads
     env_file:
@@ -120,7 +120,7 @@ services:
     build:
       context: ./strapi
       dockerfile: Dockerfile.xp
-    container_name: strapi-xp
+    container_name: bstrapi-xp
     ports:
       - "1337:1337"
     volumes:
@@ -153,7 +153,7 @@ services:
     build:
       context: ./nginx
       dockerfile: Dockerfile
-    container_name: bob-nginx
+    container_name: bnginx
     ports:
       - "127.0.0.1:${NGINX_PORT:-8080}:80"
     depends_on:
@@ -165,7 +165,7 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
-    container_name: bob-livekit
+    container_name: blivekit
     restart: unless-stopped
     ports:
       # LiveKit = serveur RTC + TURN, doit toujours être accessible depuis l'extérieur
