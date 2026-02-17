@@ -77,19 +77,23 @@ wait_for_healthy() {
             printf "\r\033[K"
             log_success "$container est healthy ! (en ${elapsed}s)"
             return 0
-        elif [ "$status" = "not_found" ]; then
-            printf "\r\033[K"
-            log_error "Conteneur $container introuvable"
-            return 1
         fi
 
         local remaining=$((max_wait - elapsed))
         local mins=$((remaining / 60))
         local secs=$((remaining % 60))
-        printf "\r\033[K  ⏳ %s : %s — temps restant : %02d:%02d" "$container" "$status" "$mins" "$secs"
 
-        sleep 5
-        elapsed=$((elapsed + 5))
+        local display_status
+        if [ "$status" = "not_found" ]; then
+            display_status="en attente du conteneur"
+        else
+            display_status="$status"
+        fi
+
+        echo -ne "\r\033[K  $container : $display_status -- temps restant : $(printf '%02d:%02d' "$mins" "$secs")"
+
+        sleep 1
+        elapsed=$((elapsed + 1))
     done
 
     printf "\r\033[K"
@@ -104,8 +108,8 @@ show_status() {
     echo ""
 
     # Master
-    if is_running "strapi-master"; then
-        if is_healthy "strapi-master"; then
+    if is_running "bstrapi-master"; then
+        if is_healthy "bstrapi-master"; then
             log_success "strapi-master : RUNNING + HEALTHY"
         else
             log_warning "strapi-master : RUNNING (not healthy yet)"
@@ -115,8 +119,8 @@ show_status() {
     fi
 
     # Slave
-    if is_running "strapi-slave"; then
-        if is_healthy "strapi-slave"; then
+    if is_running "bstrapi-slave"; then
+        if is_healthy "bstrapi-slave"; then
             log_success "strapi-slave  : RUNNING + HEALTHY"
         else
             log_warning "strapi-slave  : RUNNING (not healthy yet)"
@@ -126,7 +130,7 @@ show_status() {
     fi
 
     # Nginx
-    if is_running "bob-nginx"; then
+    if is_running "bnginx"; then
         log_success "nginx         : RUNNING"
     else
         log_warning "nginx         : STOPPED"
@@ -181,10 +185,9 @@ build_image() {
 
     log_info "Build de l'image Strapi avec tag : bob-strapi:$version"
 
-    docker compose -f "$COMPOSE_FILE" build strapi-master
+    docker compose -f "$COMPOSE_FILE" build strapi-master > /dev/null 2>&1
 
     log_success "Image buildee : bob-strapi:$version"
-    echo "$version"
 }
 
 # =============================================================================
@@ -210,10 +213,13 @@ deploy() {
         echo ""
     fi
 
+    # Lire la version depuis .env (mise a jour ou existante)
+    local version
+    version=$(grep -oP '^STRAPI_VERSION=\K.*' "$SCRIPT_DIR/.env" 2>/dev/null || echo "unknown")
+
     # Etape 1 : Build (utilise STRAPI_VERSION du .env pour le tag de l'image)
     log_info "Etape 1/7 : Build de la nouvelle image..."
-    local version
-    version=$(build_image "${target_version:-$(date +%Y%m%d%H%M%S)}")
+    build_image "$version"
     echo ""
 
     # Etape 2 : Demarrer slave avec la nouvelle image
@@ -225,7 +231,7 @@ deploy() {
 
     # Etape 3 : Attendre que slave soit healthy
     log_info "Etape 3/7 : Attente du healthcheck de strapi-slave..."
-    if ! wait_for_healthy "strapi-slave" 300; then
+    if ! wait_for_healthy "bstrapi-slave" 300; then
         log_error "strapi-slave n'a pas demarre correctement. Deploiement annule."
         log_warning "strapi-master continue de servir le trafic (inchange)."
         echo ""
@@ -251,7 +257,7 @@ deploy() {
 
     # Etape 6 : Attendre que master soit healthy
     log_info "Etape 6/7 : Attente du healthcheck de strapi-master..."
-    if ! wait_for_healthy "strapi-master" 180; then
+    if ! wait_for_healthy "bstrapi-master" 180; then
         log_error "strapi-master n'a pas redemarre correctement."
         log_warning "strapi-slave continue de servir le trafic (failover actif)."
         log_warning "Investiguer les logs, puis relancer manuellement."
