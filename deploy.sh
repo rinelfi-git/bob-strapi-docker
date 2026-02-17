@@ -137,6 +137,37 @@ show_status() {
 }
 
 # =============================================================================
+# Version management
+# =============================================================================
+
+# Valider le format semver (x.y.z)
+validate_version() {
+    local version=$1
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        log_error "Format de version invalide: '$version' (attendu: x.y.z)"
+        exit 1
+    fi
+}
+
+# Mettre a jour STRAPI_VERSION dans .env
+update_env_version() {
+    local version=$1
+    local env_file="$SCRIPT_DIR/.env"
+
+    if [ ! -f "$env_file" ]; then
+        log_error "Fichier .env introuvable: $env_file"
+        exit 1
+    fi
+
+    local old_version
+    old_version=$(grep -oP '^STRAPI_VERSION=\K.*' "$env_file" 2>/dev/null || echo "unknown")
+
+    sed -i "s/^STRAPI_VERSION=.*/STRAPI_VERSION=$version/" "$env_file"
+
+    log_success "STRAPI_VERSION mis a jour dans .env: $old_version -> $version"
+}
+
+# =============================================================================
 # Build
 # =============================================================================
 build_image() {
@@ -146,10 +177,7 @@ build_image() {
 
     docker compose -f "$COMPOSE_FILE" build strapi-master
 
-    # Tagger avec la version
-    docker tag bob-strapi:latest "bob-strapi:$version" 2>/dev/null || true
-
-    log_success "Image buildee et taguee : bob-strapi:$version"
+    log_success "Image buildee : bob-strapi:$version"
     echo "$version"
 }
 
@@ -160,16 +188,26 @@ build_image() {
 # error_page redirige vers @slave_fallback (resolution dynamique).
 # =============================================================================
 deploy() {
+    local target_version="${1:-}"
+
     echo ""
     log_info "========================================="
     log_info "  Deploiement Blue-Green (zero-downtime)"
     log_info "========================================="
     echo ""
 
-    # Etape 1 : Build
+    # Si une version est specifiee, mettre a jour .env avant le build
+    if [ -n "$target_version" ]; then
+        validate_version "$target_version"
+        log_info "Version cible : $target_version"
+        update_env_version "$target_version"
+        echo ""
+    fi
+
+    # Etape 1 : Build (utilise STRAPI_VERSION du .env pour le tag de l'image)
     log_info "Etape 1/7 : Build de la nouvelle image..."
     local version
-    version=$(build_image)
+    version=$(build_image "${target_version:-$(date +%Y%m%d%H%M%S)}")
     echo ""
 
     # Etape 2 : Demarrer slave avec la nouvelle image
@@ -236,6 +274,13 @@ deploy() {
 # MAIN
 # =============================================================================
 case "${1:-}" in
+    --version)
+        if [ -z "${2:-}" ]; then
+            log_error "Version manquante. Usage: $0 --version x.y.z"
+            exit 1
+        fi
+        deploy "$2"
+        ;;
     --status)
         show_status
         ;;
@@ -247,10 +292,15 @@ case "${1:-}" in
         echo "Usage: $0 [OPTION]"
         echo ""
         echo "Options:"
-        echo "  (sans args)     Deploiement complet zero-downtime"
-        echo "  --status        Afficher l'etat des conteneurs"
-        echo "  --build-only    Build l'image sans deployer"
-        echo "  --help          Afficher cette aide"
+        echo "  (sans args)            Deploiement complet zero-downtime"
+        echo "  --version x.y.z        Deployer avec une nouvelle version (met a jour .env et l'image)"
+        echo "  --status               Afficher l'etat des conteneurs"
+        echo "  --build-only [tag]     Build l'image sans deployer"
+        echo "  --help                 Afficher cette aide"
+        echo ""
+        echo "Exemples:"
+        echo "  $0                     # Deploy avec la version actuelle du .env"
+        echo "  $0 --version 2.1.0     # Met a jour STRAPI_VERSION=2.1.0 dans .env, rebuild et deploy"
         echo ""
         echo "Workflow de deploiement :"
         echo "  1. Build nouvelle image"
@@ -270,7 +320,7 @@ case "${1:-}" in
         ;;
     *)
         log_error "Option inconnue: $1"
-        echo "Usage: $0 [--status|--build-only|--help]"
+        echo "Usage: $0 [--version x.y.z|--status|--build-only|--help]"
         exit 1
         ;;
 esac
