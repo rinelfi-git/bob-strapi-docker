@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     msmtp \
     ca-certificates \
     curl \
+    ffmpeg \
     && ln -sf /usr/bin/msmtp /usr/sbin/sendmail \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
