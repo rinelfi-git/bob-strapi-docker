@@ -118,7 +118,7 @@ keys:
 webhook:
   api_key: livekit
   urls:
-    - http://strapi:1337/api/livekit-webhook
+    - http://nginx:80/api/livekit-webhook
 
 logging:
   level: info
