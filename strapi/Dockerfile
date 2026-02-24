@@ -43,6 +43,7 @@ COPY src/ ./src/
 COPY database/ ./database/
 COPY types/ ./types/
 COPY public/robots.txt ./public/robots.txt
+COPY public/delete-account.html ./public/delete-account.html
 COPY tsconfig.json ./
 COPY vite.config.js ./
 COPY favicon.png ./
@@ -84,6 +85,7 @@ COPY --from=builder /app/bob/src ./src
 COPY --from=builder /app/bob/database ./database
 COPY --from=builder /app/bob/types ./types
 COPY --from=builder /app/bob/public/robots.txt ./public/robots.txt
+COPY --from=builder /app/bob/public/delete-account.html ./public/delete-account.html
 COPY --from=builder /app/bob/favicon.png ./favicon.png
 COPY --from=builder /app/bob/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/bob/vite.config.js ./vite.config.js
